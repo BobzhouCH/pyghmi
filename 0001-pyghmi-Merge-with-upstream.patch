@@ -1,0 +1,3120 @@
+From 6ce3ec52aad3959cfbba2ce2a612b46cc1ce5ff9 Mon Sep 17 00:00:00 2001
+From: Michael Du <duxd2@LENOVO.COM>
+Date: Tue, 11 Jul 2017 18:50:01 +0800
+Subject: [PATCH] [pyghmi] Merge with upstream
+
+---
+ .gitignore                           |  21 +-
+ README.md                            |  12 +-
+ doc/source/conf.py                   |  81 +++----
+ doc/source/index.rst                 |   4 +-
+ pyghmi/exceptions.py                 |   6 +
+ pyghmi/ipmi/bmc.py                   |  14 +-
+ pyghmi/ipmi/command.py               | 140 ++++++++----
+ pyghmi/ipmi/console.py               |  84 ++++----
+ pyghmi/ipmi/events.py                |  20 +-
+ pyghmi/ipmi/fru.py                   |  12 +-
+ pyghmi/ipmi/oem/generic.py           |  47 +++-
+ pyghmi/ipmi/oem/lenovo/handler.py    | 404 ++++++++++++++++++++++++++++++++---
+ pyghmi/ipmi/oem/lenovo/inventory.py  |   8 +-
+ pyghmi/ipmi/oem/lookup.py            |   1 -
+ pyghmi/ipmi/private/constants.py     |   4 +-
+ pyghmi/ipmi/private/serversession.py | 132 +++++++-----
+ pyghmi/ipmi/private/session.py       | 326 +++++++++++++++-------------
+ pyghmi/ipmi/private/spd.py           |  22 +-
+ pyghmi/ipmi/private/util.py          |   4 +-
+ pyghmi/ipmi/sdr.py                   |  45 ++--
+ pyghmi/util/webclient.py             |  56 ++++-
+ setup.cfg                            |   5 +
+ test-requirements.txt                |   2 +
+ tox.ini                              |   7 +-
+ 24 files changed, 1014 insertions(+), 443 deletions(-)
+
+diff --git a/.gitignore b/.gitignore
+index 733dfd3..a35fb11 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -1,8 +1,19 @@
++# Compiled python files
++*.py[co]
++
++# Editors
++.*.sw[klmop]
++*~
++
++# Packages/installer info
++*.egg[s]
++*.egg-info
++dist
++sdist
++
++# Other
++.testrepository
+ AUTHORS
+ ChangeLog
+-dist/
+-python_ipmi.egg-info/
+ .tox
+-.project
+-.pydevproject
+-*.pyc
++doc/build
+diff --git a/README.md b/README.md
+index c3e65ec..fc27ae1 100755
+--- a/README.md
++++ b/README.md
+@@ -38,14 +38,14 @@ firmware version information is not a part of standard IPMI, but some servers
+ are known to support it via custom OEM commands. If this is the case, follow
+ these steps:
+ - Add your generic retrieval function (stub) to the `OEMHandler` class in
+-- `pyghmi/ipmi/oem/generic.py`. And please, document its intent, parameters and
+-- expected return values.
++  `pyghmi/ipmi/oem/generic.py`. And please, document its intent, parameters and
++  expected return values.
+ - Implement the specific methods that your server supports in subdirectories in
+-- the `oem` folder (consider the `lenovo` submodule as an example). A OEM folder
+-- will contain at least one class inheriting from `OEMHandler`, and optionally
+-- helpers for running and parsing custom OEM commands.
++  the `oem` folder (consider the `lenovo` submodule as an example). A OEM folder
++  will contain at least one class inheriting from `OEMHandler`, and optionally
++  helpers for running and parsing custom OEM commands.
+ - Register mapping policies in `pyghmi/ipmi/oem/lookup.py` so pyghmi knows how
+-- to associate a BMC session with the specific OEM code you implemented.
++  to associate a BMC session with the specific OEM code you implemented.
+ 
+ A good way of testing the new feature is using `bin/pyghmiutil`. Just add an
+ extension for the new feature you just implemented (as a new command) and call
+diff --git a/doc/source/conf.py b/doc/source/conf.py
+index 374f748..cdf8326 100644
+--- a/doc/source/conf.py
++++ b/doc/source/conf.py
+@@ -15,6 +15,8 @@
+ import os
+ import sys
+ 
++from pyghmi.version import version_info
++
+ # If extensions (or modules to document with autodoc) are in another directory,
+ # add these directories to sys.path here. If the directory is relative to the
+ # documentation root, use os.path.abspath to make it absolute, like shown here.
+@@ -25,11 +27,11 @@ sys.path.insert(0, os.path.abspath('.'))
+ # -- General configuration ---------------------------------------------------
+ 
+ # If your documentation needs a minimal Sphinx version, state it here.
+-#needs_sphinx = '1.0'
++# needs_sphinx = '1.0'
+ 
+ # Add any Sphinx extension module names here, as strings. They can be
+ # extensions coming with Sphinx (named 'sphinx.ext.*') or your custom ones.
+-extensions = ['sphinx.ext.autodoc', 'sphinx.ext.todo', 'sphinx.ext.pngmath']
++extensions = ['sphinx.ext.autodoc', 'sphinx.ext.todo']
+ 
+ # Add any paths that contain templates here, relative to this directory.
+ templates_path = ['_templates']
+@@ -38,7 +40,7 @@ templates_path = ['_templates']
+ source_suffix = '.rst'
+ 
+ # The encoding of source files.
+-#source_encoding = 'utf-8-sig'
++# source_encoding = 'utf-8-sig'
+ 
+ # The master toctree document.
+ master_doc = 'index'
+@@ -51,7 +53,7 @@ copyright = u'2013, Jarrod Johnson <jbjohnso@us.ibm.com>'
+ # |version| and |release|, also used in various other places throughout the
+ # built documents.
+ #
+-from ipmi.version import version_info
++
+ # The full version, including alpha/beta/rc tags.
+ release = version_info.release_string()
+ # The short X.Y version.
+@@ -59,37 +61,37 @@ version = version_info.version_string()
+ 
+ # The language for content autogenerated by Sphinx. Refer to documentation
+ # for a list of supported languages.
+-#language = None
++# language = None
+ 
+ # There are two options for replacing |today|: either, you set today to some
+ # non-false value, then it is used:
+-#today = ''
++# today = ''
+ # Else, today_fmt is used as the format for a strftime call.
+-#today_fmt = '%B %d, %Y'
++# today_fmt = '%B %d, %Y'
+ 
+ # List of patterns, relative to source directory, that match files and
+ # directories to ignore when looking for source files.
+ exclude_patterns = ['_build']
+ 
+ # The reST default role (used for this markup: `text`) to use for all documents
+-#default_role = None
++# default_role = None
+ 
+ # If true, '()' will be appended to :func: etc. cross-reference text.
+-#add_function_parentheses = True
++# add_function_parentheses = True
+ 
+ # If true, the current module name will be prepended to all description
+ # unit titles (such as .. function::).
+-#add_module_names = True
++# add_module_names = True
+ 
+ # If true, sectionauthor and moduleauthor directives will be shown in the
+ # output. They are ignored by default.
+-#show_authors = False
++# show_authors = False
+ 
+ # The name of the Pygments (syntax highlighting) style to use.
+ pygments_style = 'sphinx'
+ 
+ # A list of ignored prefixes for module index sorting.
+-#modindex_common_prefix = []
++# modindex_common_prefix = []
+ 
+ 
+ # -- Options for HTML output -------------------------------------------------
+@@ -101,26 +103,26 @@ html_theme = 'default'
+ # Theme options are theme-specific and customize the look and feel of a theme
+ # further.  For a list of options available for each theme, see the
+ # documentation.
+-#html_theme_options = {}
++# html_theme_options = {}
+ 
+ # Add any paths that contain custom themes here, relative to this directory.
+-#html_theme_path = []
++# html_theme_path = []
+ 
+ # The name for this set of Sphinx documents.  If None, it defaults to
+ # "<project> v<release> documentation".
+-#html_title = None
++# html_title = None
+ 
+ # A shorter title for the navigation bar.  Default is the same as html_title.
+-#html_short_title = None
++# html_short_title = None
+ 
+ # The name of an image file (relative to this directory) to place at the top
+ # of the sidebar.
+-#html_logo = None
++# html_logo = None
+ 
+ # The name of an image file (within the static path) to use as favicon of the
+ # docs.  This file should be a Windows icon file (.ico) being 16x16 or 32x32
+ # pixels large.
+-#html_favicon = None
++# html_favicon = None
+ 
+ # Add any paths that contain custom static files (such as style sheets) here,
+ # relative to this directory. They are copied after the builtin static files,
+@@ -129,56 +131,55 @@ html_static_path = ['_static']
+ 
+ # If not '', a 'Last updated on:' timestamp is inserted at every page bottom,
+ # using the given strftime format.
+-#html_last_updated_fmt = '%b %d, %Y'
++# html_last_updated_fmt = '%b %d, %Y'
+ 
+ # If true, SmartyPants will be used to convert quotes and dashes to
+ # typographically correct entities.
+-#html_use_smartypants = True
++# html_use_smartypants = True
+ 
+ # Custom sidebar templates, maps document names to template names.
+-#html_sidebars = {}
++# html_sidebars = {}
+ 
+ # Additional templates that should be rendered to pages, maps page names to
+ # template names.
+-#html_additional_pages = {}
++# html_additional_pages = {}
+ 
+ # If false, no module index is generated.
+-#html_domain_indices = True
++# html_domain_indices = True
+ 
+ # If false, no index is generated.
+-#html_use_index = True
++# html_use_index = True
+ 
+ # If true, the index is split into individual pages for each letter.
+-#html_split_index = False
++# html_split_index = False
+ 
+ # If true, links to the reST sources are added to the pages.
+-#html_show_sourcelink = True
++# html_show_sourcelink = True
+ 
+ # If true, "Created using Sphinx" is shown in the HTML footer. Default is True.
+-#html_show_sphinx = True
++# html_show_sphinx = True
+ 
+ # If true, "(C) Copyright ..." is shown in the HTML footer. Default is True.
+-#html_show_copyright = True
++# html_show_copyright = True
+ 
+ # If true, an OpenSearch description file will be output, and all pages will
+ # contain a <link> tag referring to it.  The value of this option must be the
+ # base URL from which the finished HTML is served.
+-#html_use_opensearch = ''
++# html_use_opensearch = ''
+ 
+ # This is the file name suffix for HTML files (e.g. ".xhtml").
+-#html_file_suffix = None
++# html_file_suffix = None
+ 
+ # Output file base name for HTML help builder.
+ htmlhelp_basename = 'pyghmidoc'
+ 
+-
+ # -- Options for LaTeX output -------------------------------------------------
+ 
+ # The paper size ('letter' or 'a4').
+-#latex_paper_size = 'letter'
++# latex_paper_size = 'letter'
+ 
+ # The font size ('10pt', '11pt' or '12pt').
+-#latex_font_size = '10pt'
++# latex_font_size = '10pt'
+ 
+ # Grouping the document tree into LaTeX files. List of tuples
+ # (source start file, target name, title, author, documentclass [howto/manual])
+@@ -190,26 +191,26 @@ latex_documents = [
+ 
+ # The name of an image file (relative to this directory) to place at the top of
+ # the title page.
+-#latex_logo = None
++# latex_logo = None
+ 
+ # For "manual" documents, if this is true, then toplevel headings are parts,
+ # not chapters.
+-#latex_use_parts = False
++# latex_use_parts = False
+ 
+ # If true, show page references after internal links.
+-#latex_show_pagerefs = False
++# latex_show_pagerefs = False
+ 
+ # If true, show URL addresses after external links.
+-#latex_show_urls = False
++# latex_show_urls = False
+ 
+ # Additional stuff for the LaTeX preamble.
+-#latex_preamble = ''
++# latex_preamble = ''
+ 
+ # Documents to append as an appendix to all manuals.
+-#latex_appendices = []
++# latex_appendices = []
+ 
+ # If false, no module index is generated.
+-#latex_domain_indices = True
++# latex_domain_indices = True
+ 
+ 
+ # -- Options for manual page output -------------------------------------------
+diff --git a/doc/source/index.rst b/doc/source/index.rst
+index 0a8b0d6..ab4bac9 100644
+--- a/doc/source/index.rst
++++ b/doc/source/index.rst
+@@ -11,9 +11,9 @@ Contents:
+ .. toctree::
+    :maxdepth: 2
+ 
+-.. automodule:: ipmi.command
++.. automodule:: pyghmi.ipmi.command
+ 
+-.. autoclass:: ipmi.command
++.. autoclass:: pyghmi.ipmi.command
+     :members:
+ 
+ Indices and tables
+diff --git a/pyghmi/exceptions.py b/pyghmi/exceptions.py
+index 869f444..a9e2b80 100644
+--- a/pyghmi/exceptions.py
++++ b/pyghmi/exceptions.py
+@@ -42,3 +42,9 @@ class InvalidParameterValue(PyghmiException):
+ class BmcErrorException(IpmiException):
+     # This denotes when library detects an invalid BMC behavior
+     pass
++
++
++class UnsupportedFunctionality(PyghmiException):
++    # Indicates when functionality is requested that is not supported by
++    # current endpoint
++    pass
+diff --git a/pyghmi/ipmi/bmc.py b/pyghmi/ipmi/bmc.py
+index 4606ebc..4d6c23b 100644
+--- a/pyghmi/ipmi/bmc.py
++++ b/pyghmi/ipmi/bmc.py
+@@ -14,13 +14,13 @@
+ # See the License for the specific language governing permissions and
+ # limitations under the License.
+ 
+-__author__ = 'jjohnson2@lenovo.com'
+-
+ import pyghmi.ipmi.command as ipmicommand
+ import pyghmi.ipmi.private.serversession as serversession
+ import pyghmi.ipmi.private.session as ipmisession
+ import traceback
+ 
++__author__ = 'jjohnson2@lenovo.com'
++
+ 
+ class Bmc(serversession.IpmiServer):
+     def cold_reset(self):
+@@ -38,6 +38,9 @@ class Bmc(serversession.IpmiServer):
+     def power_reset(self):
+         raise NotImplementedError
+ 
++    def pulse_diag(self):
++        raise NotImplementedError
++
+     def power_shutdown(self):
+         raise NotImplementedError
+ 
+@@ -72,6 +75,9 @@ class Bmc(serversession.IpmiServer):
+                 rc = self.power_cycle()
+             elif directive == 3:
+                 rc = self.power_reset()
++            elif directive == 4:
++                # i.e. Pulse a diagnostic interrupt(NMI) directly
++                rc = self.pulse_diag()
+             elif directive == 5:
+                 rc = self.power_shutdown()
+             if rc is None:
+@@ -142,6 +148,6 @@ class Bmc(serversession.IpmiServer):
+             traceback.print_exc()
+ 
+     @classmethod
+-    def listen(cls):
++    def listen(cls, timeout=30):
+         while True:
+-            ipmisession.Session.wait_for_rsp(30)
++            ipmisession.Session.wait_for_rsp(timeout)
+diff --git a/pyghmi/ipmi/command.py b/pyghmi/ipmi/command.py
+index b7ef005..9f3dde6 100755
+--- a/pyghmi/ipmi/command.py
++++ b/pyghmi/ipmi/command.py
+@@ -1,7 +1,7 @@
+ # vim: tabstop=4 shiftwidth=4 softtabstop=4
+ 
+ # Copyright 2013 IBM Corporation
+-# Copyright 2015 Lenovo
++# Copyright 2015-2017 Lenovo
+ #
+ # Licensed under the Apache License, Version 2.0 (the "License");
+ # you may not use this file except in compliance with the License.
+@@ -23,12 +23,25 @@ import pyghmi.exceptions as exc
+ import pyghmi.ipmi.events as sel
+ import pyghmi.ipmi.fru as fru
+ from pyghmi.ipmi.oem.lookup import get_oem_handler
+-from pyghmi.ipmi.private import session
++
++try:
++    from pyghmi.ipmi.private import session
++except ImportError:
++    session = None
++from pyghmi.ipmi.private import localsession
+ import pyghmi.ipmi.private.util as pygutil
+ import pyghmi.ipmi.sdr as sdr
+ import socket
+ import struct
+ 
++try:
++    range = xrange
++except NameError:
++    pass
++try:
++    buffer
++except NameError:
++    buffer = memoryview
+ 
+ boot_devices = {
+     'net': 4,
+@@ -77,7 +90,7 @@ def _mask_to_cidr(mask):
+ 
+ 
+ def _cidr_to_mask(prefix):
+-    return struct.pack('>I', 2**prefix-1 << (32-prefix))
++    return struct.pack('>I', 2 ** prefix - 1 << (32 - prefix))
+ 
+ 
+ class Command(object):
+@@ -94,15 +107,16 @@ class Command(object):
+     callback_args parameter. However, callback_args can optionally be populated
+     if desired.
+ 
+-    :param bmc: hostname or ip address of the BMC
+-    :param userid: username to use to connect
+-    :param password: password to connect to the BMC
++    :param bmc: hostname or ip address of the BMC (default is local)
++    :param userid: username to use to connect (default to no user)
++    :param password: password to connect to the BMC (defaults to no password)
+     :param onlogon: function to run when logon completes in an asynchronous
+                     fashion.  This will result in a greenthread behavior.
+     :param kg: Optional parameter to use if BMC has a particular Kg configured
+     """
+ 
+-    def __init__(self, bmc, userid, password, port=623, onlogon=None, kg=None):
++    def __init__(self, bmc=None, userid=None, password=None, port=623,
++                 onlogon=None, kg=None):
+         # TODO(jbjohnso): accept tuples and lists of each parameter for mass
+         # operations without pushing the async complexities up the stack
+         self.onlogon = onlogon
+@@ -110,7 +124,11 @@ class Command(object):
+         self._sdr = None
+         self._oem = None
+         self._netchannel = None
+-        if onlogon is not None:
++        self._ipv6support = None
++        self.certverify = None
++        if bmc is None:
++            self.ipmi_session = localsession.Session()
++        elif onlogon is not None:
+             self.ipmi_session = session.Session(bmc=bmc,
+                                                 userid=userid,
+                                                 password=password,
+@@ -141,12 +159,11 @@ class Command(object):
+                      defaults to 'tls'
+         """
+         if type == 'tls':
+-            self._certverify = callback
+-        self.oem_init()
+-        self._oem.register_key_handler(callback, type)
++            self.certverify = callback
+ 
+     def logged(self, response):
+         self.onlogon(response, self)
++        self.onlogon = None
+ 
+     @classmethod
+     def eventloop(cls):
+@@ -171,7 +188,7 @@ class Command(object):
+             'device_id': response['data'][0],
+             'device_revision': response['data'][1] & 0b1111,
+             'manufacturer_id': struct.unpack(
+-                '<I', struct.pack('3B', *response['data'][6:9]) + '\x00')[0],
++                '<I', struct.pack('3B', *response['data'][6:9]) + b'\x00')[0],
+             'product_id': struct.unpack(
+                 '<H', struct.pack('2B', *response['data'][9:11]))[0],
+         }
+@@ -246,6 +263,7 @@ class Command(object):
+                      requested state change for 300 seconds.
+                      If a non-zero number, adjust the wait time to the
+                      requested number of seconds
++        :raises: IpmiException on an error
+         :returns: dict -- A dict describing the response retrieved
+         """
+         if powerstate not in power_states:
+@@ -278,7 +296,7 @@ class Command(object):
+             while currpowerstate != waitpowerstate and waitattempts > 0:
+                 response = self.raw_command(netfn=0, command=1, delay_xmit=1)
+                 if 'error' in response:
+-                    return response
++                    raise exc.IpmiException(response['error'])
+                 currpowerstate = 'on' if (response['data'][0] & 1) else 'off'
+                 waitattempts -= 1
+             if currpowerstate != waitpowerstate:
+@@ -417,7 +435,7 @@ class Command(object):
+         response = self.raw_command(netfn=0, command=1)
+         if 'error' in response:
+             raise exc.IpmiException(response['error'])
+-        assert(response['command'] == 1 and response['netfn'] == 1)
++        assert (response['command'] == 1 and response['netfn'] == 1)
+         powerstate = 'on' if (response['data'][0] & 1) else 'off'
+         return {'powerstate': powerstate}
+ 
+@@ -431,6 +449,12 @@ class Command(object):
+         :param duration: Set if wanting to request turn on for a duration
+                          rather than indefinitely on
+         """
++        self.oem_init()
++        try:
++            self._oem.set_identify(on, duration)
++            return
++        except exc.UnsupportedFunctionality:
++            pass
+         if duration is not None:
+             duration = int(duration)
+             if duration > 255:
+@@ -820,7 +844,7 @@ class Command(object):
+         that
+         """
+         if self._netchannel is None:
+-            for channel in chain((0xe, ), xrange(1, 0xc)):
++            for channel in chain((0xe,), range(1, 0xc)):
+                 try:
+                     rsp = self.xraw_command(
+                         netfn=6, command=0x42, data=(channel,))
+@@ -947,7 +971,7 @@ class Command(object):
+         numpol = ord(rsp['data'][1])
+         desiredchandest = (channel << 4) | destination
+         availpolnum = None
+-        for polnum in xrange(1, numpol + 1):
++        for polnum in range(1, numpol + 1):
+             currpol = self.xraw_command(netfn=4, command=0x13,
+                                         data=(9, polnum, 0))
+             polidx, chandest = struct.unpack_from('>BB', currpol['data'][2:4])
+@@ -983,6 +1007,18 @@ class Command(object):
+         rsp = self.xraw_command(netfn=0xc, command=2, data=(channel, 16, 0, 0))
+         return rsp['data'][1:].partition('\x00')[0]
+ 
++    @property
++    def _supports_standard_ipv6(self):
++        # Supports the *standard* ipv6 commands for various things
++        # used to internally steer some commands to standard or OEM
++        # handler of commands
++        lanchan = self.get_network_channel()
++        if self._ipv6support is None:
++            rsp = self.raw_command(netfn=0xc, command=0x2, data=(2, lanchan,
++                                                                 0x32, 0, 0))
++            self._ipv6support = rsp['code'] == 0
++        return self._ipv6support
++
+     def set_alert_destination(self, ip=None, acknowledge_required=None,
+                               acknowledge_timeout=None, retries=None,
+                               destination=0, channel=None):
+@@ -1008,7 +1044,7 @@ class Command(object):
+                 acknowledge_timeout is not None):
+             currtype = self.xraw_command(netfn=0xc, command=2, data=(
+                 channel, 18, destination, 0))
+-            if currtype['data'][0] != '\x11':
++            if currtype['data'][0] != b'\x11':
+                 raise exc.PyghmiException("Unknown parameter format")
+             currtype = bytearray(currtype['data'][1:])
+             if acknowledge_required is not None:
+@@ -1061,7 +1097,7 @@ class Command(object):
+         ret = self._oem.set_oem_identifier(mci)
+         if ret:
+             return        
+-        return self._chunkwise_dcmi_set(0xa, mci + '\x00')
++        return self._chunkwise_dcmi_set(0xa, mci + b'\x00')
+ 
+     def get_asset_tag(self):
+         """Get the system asset tag, per DCMI specification
+@@ -1093,7 +1129,7 @@ class Command(object):
+         return retstr
+ 
+     def _chunkwise_dcmi_set(self, command, data):
+-        chunks = [data[i:i+15] for i in xrange(0, len(data), 15)]
++        chunks = [data[i:i + 15] for i in range(0, len(data), 15)]
+         offset = 0
+         for chunk in chunks:
+             chunk = bytearray(chunk, 'utf-8')
+@@ -1172,7 +1208,7 @@ class Command(object):
+             'dont_change': 0,
+             'non_volatile': 1,
+             'volatile': 2,
+-            #'reserved': 3
++            # 'reserved': 3
+         }
+         b = 0
+         b |= (access_update_modes[access_update_mode] << 6) & 0b11000000
+@@ -1195,7 +1231,7 @@ class Command(object):
+             'dont_change': 0,
+             'non_volatile': 1,
+             'volatile': 2,
+-            #'reserved': 3
++            # 'reserved': 3
+         }
+         b |= (privilege_update_modes[privilege_update_mode] << 6) & 0b11000000
+         privilege_levels = {
+@@ -1280,7 +1316,7 @@ class Command(object):
+             3: 'operator',
+             4: 'administrator',
+             5: 'proprietary',
+-            #0x0F: 'no_access'
++            # 0x0F: 'no_access'
+         }
+         r['privilege_level'] = privilege_levels[data[1] & 0b00001111]
+         return r
+@@ -1325,8 +1361,8 @@ class Command(object):
+             0x0a: 'reserved for USB 1.x',
+             0x0b: 'reserved for USB 2.x',
+             0x0c: 'System Interface (KCS, SMIC, or BT)',
+-            ## 60h-7Fh: OEM
+-            ## all other  reserved
++            # 60h-7Fh: OEM
++            # all other  reserved
+         }
+         t = data[1] & 0b01111111
+         if t in channel_medium_types:
+@@ -1442,7 +1478,7 @@ class Command(object):
+             privilege_level: [reserved, callback, user,
+                               operatorm administrator, proprietary, no_access]
+         """
+-        ## user access available during call-in or callback direct connection
++        # user access available during call-in or callback direct connection
+         if channel is None:
+             channel = self.get_network_channel()
+         data = [channel, uid]
+@@ -1482,9 +1518,7 @@ class Command(object):
+             raise Exception('name must be less than or = 16 chars')
+         name = name.ljust(16, "\x00")
+         data.extend([ord(x) for x in name])
+-        response = self.raw_command(netfn=0x06, command=0x45, data=data)
+-        if 'error' in response:
+-            raise Exception(response['error'])
++        self.xraw_command(netfn=0x06, command=0x45, data=data)
+         return True
+ 
+     def get_user_name(self, uid, return_none_on_error=True):
+@@ -1539,20 +1573,23 @@ class Command(object):
+         if password:
+             password = str(password)
+             if 21 > len(password) > 16:
+-                password = password.ljust(20, '\x00')
++                password = password.ljust(20, b'\x00')
+                 data[0] |= 0b10000000
+             elif len(password) > 20:
+                 raise Exception('password has limit of 20 chars')
+             else:
+                 password = password.ljust(16, "\x00")
+             data.extend([ord(x) for x in password])
+-        response = self.raw_command(netfn=0x06, command=0x47, data=data)
+-        if 'error' in response:
++        try:
++            self.xraw_command(netfn=0x06, command=0x47, data=data)
++        except exc.IpmiException as ie:
+             if mode == 'test_password':
+-                # return false if password test failed
+                 return False
+-            if 'error' in response:    
+-                raise Exception(response['error'])
++            elif mode in ('enable', 'disable') and ie.ipmicode == 0xcc:
++                # Some BMCs see redundant calls to password disable/enable
++                # as invalid
++                return True
++            raise
+         return True
+ 
+     def get_channel_max_user_count(self, channel=None):
+@@ -1627,7 +1664,7 @@ class Command(object):
+             channel = self.get_network_channel()
+         names = {}
+         max_ids = self.get_channel_max_user_count(channel)
+-        for uid in range(1, max_ids+1):
++        for uid in range(1, max_ids + 1):
+             name = self.get_user_name(uid=uid)
+             if name is not None:
+                 names[uid] = self.get_user(uid=uid, channel=channel)
+@@ -1658,7 +1695,6 @@ class Command(object):
+                              privilege_level=privilege_level)
+         self.set_user_password(uid, password=password)
+         self.set_user_password(uid, mode='enable', password=password)
+-
+         return True
+ 
+     def user_delete(self, uid, channel=None):
+@@ -1683,12 +1719,14 @@ class Command(object):
+         try:
+             # First try to set name to all \x00 explicitly
+             self.set_user_name(uid, '')
+-        except Exception:
++        except exc.IpmiException as ie:
++            if ie.ipmicode != 0xcc:
++                raise
+             # An invalid data field in request  is frequently reported.
+             # however another convention that exists is all '\xff'
+             # if this fails, pass up the error so that calling code knows
+             # that the deletion did not go as planned for now
+-            self.set_user_name(uid, '\xff' * 16)
++            self.set_user_name(uid, b'\xff' * 16)
+         return True
+ 
+     def disable_user(self, uid, mode):
+@@ -1709,7 +1747,10 @@ class Command(object):
+         """Retrieve OEM Firmware information
+         """
+         self.oem_init()
+-        return self._oem.get_oem_firmware()
++        mcinfo = self.xraw_command(netfn=6, command=1)
++        bmcver = '{0}.{1}'.format(
++            ord(mcinfo['data'][2]), hex(ord(mcinfo['data'][3]))[2:])
++        return self._oem.get_oem_firmware(bmcver)
+ 
+     def get_service_log(self):
+         """Retrieve OEM ServiceLog information
+@@ -1786,4 +1827,23 @@ class Command(object):
+     def get_media_redirected_image_info(self, image_type_id):
+         """Get Media Image info"""
+         self.oem_init()
+-        return self._oem.get_media_redirected_image_info(image_type_id)
++     
++    def attach_remote_media(self, url, username=None, password=None):
++        """Attach remote media by url
++
++        Given a url, attach remote media (cd/usb image) to the target system.
++
++        :param url:  URL to indicate where to find image (protocol support
++                     varies by BMC)
++        :param username: Username for endpoint to use when accessing the URL.
++                         If applicable, 'domain' would be indicated by '@' or
++                         '\' syntax.
++        :param password: Password for endpoint to use when accessing the URL.
++        """
++        self.oem_init()
++        self._oem.attach_remote_media(url, username, password)
++
++    def detach_remote_media(self):
++        self.oem_init()
++        self._oem.detach_remote_media()
++	 
+\ No newline at end of file
+diff --git a/pyghmi/ipmi/console.py b/pyghmi/ipmi/console.py
+index f5bdab2..90ce2c8 100644
+--- a/pyghmi/ipmi/console.py
++++ b/pyghmi/ipmi/console.py
+@@ -38,7 +38,7 @@ class Console(object):
+     :param kg: optional parameter for BMCs configured to require it
+     """
+ 
+-    #TODO(jbjohnso): still need an exit and a data callin function
++    # TODO(jbjohnso): still need an exit and a data callin function
+     def __init__(self, bmc, userid, password,
+                  iohandler, port=623,
+                  force=False, kg=None):
+@@ -70,19 +70,19 @@ class Console(object):
+         if 'error' in response:
+             self._print_error(response['error'])
+             return
+-        #Send activate sol payload directive
+-        #netfn= 6 (application)
+-        #command = 0x48 (activate payload)
+-        #data = (1, sol payload type
++        # Send activate sol payload directive
++        # netfn= 6 (application)
++        # command = 0x48 (activate payload)
++        # data = (1, sol payload type
+         #        1, first instance
+         #        0b11000000, -encrypt, authenticate,
+         #                      disable serial/modem alerts, CTS fine
+         #        0, 0, 0 reserved
+         response = self.ipmi_session.raw_command(netfn=0x6, command=0x48,
+                                                  data=(1, 1, 192, 0, 0, 0))
+-        #given that these are specific to the command,
+-        #it's probably best if one can grep the error
+-        #here instead of in constants
++        # given that these are specific to the command,
++        # it's probably best if one can grep the error
++        # here instead of in constants
+         sol_activate_codes = {
+             0x81: 'SOL is disabled',
+             0x82: 'Maximum SOL session count reached',
+@@ -118,19 +118,23 @@ class Console(object):
+             self._print_error(response['error'])
+             return
+         self.activated = True
+-        #data[0:3] is reserved except for the test mode, which we don't use
++        # data[0:3] is reserved except for the test mode, which we don't use
+         data = response['data']
+         self.maxoutcount = (data[5] << 8) + data[4]
+-           #BMC tells us this is the maximum allowed size
+-        #data[6:7] is the promise of how small packets are going to be, but we
+-        #don't have any reason to worry about it
+-        if (data[8] + (data[9] << 8)) != 623:
+-            #TODO(jbjohnso): support atypical SOL port number
++        # BMC tells us this is the maximum allowed size
++        # data[6:7] is the promise of how small packets are going to be, but we
++        # don't have any reason to worry about it
++        if (data[8] + (data[9] << 8)) not in (623, 28418):
++            # TODO(jbjohnso): support atypical SOL port number
+             raise NotImplementedError("Non-standard SOL Port Number")
+-        #ignore data[10:11] for now, the vlan detail, shouldn't matter to this
+-        #code anyway...
+-        #NOTE(jbjohnso):
+-        #We will use a special purpose keepalive
++        # ignore data[10:11] for now, the vlan detail, shouldn't matter to this
++        # code anyway...
++        # NOTE(jbjohnso):
++        # We will use a special purpose keepalive
++        if self.ipmi_session.sol_handler is not None:
++            # If there is erroneously another SOL handler already, notify
++            # it of newly established session
++            self.ipmi_session.sol_handler({'error': 'Session Disconnected'})
+         self.keepaliveid = self.ipmi_session.register_keepalive(
+             cmd={'netfn': 6, 'command': 0x4b, 'data': (1, 1)},
+             callback=self._got_payload_instance_info)
+@@ -142,7 +146,6 @@ class Console(object):
+     def _got_payload_instance_info(self, response):
+         if 'error' in response:
+             self.activated = False
+-            self.ipmi_session.unregister_keepalive(self.keepaliveid)
+             self._print_error(response['error'])
+             return
+         currowner = struct.unpack(
+@@ -150,7 +153,6 @@ class Console(object):
+         if currowner[0] != self.ipmi_session.sessionid:
+             # the session is deactivated or active for something else
+             self.activated = False
+-            self.ipmi_session.unregister_keepalive(self.keepaliveid)
+             self._print_error('SOL deactivated')
+             return
+         # ok, still here, that means session is alive, but another
+@@ -180,7 +182,8 @@ class Console(object):
+     def close(self):
+         """Shut down an SOL session,
+         """
+-        self.ipmi_session.unregister_keepalive(self.keepaliveid)
++        if self.ipmi_session:
++            self.ipmi_session.unregister_keepalive(self.keepaliveid)
+         if self.activated:
+             try:
+                 self.ipmi_session.raw_command(netfn=6, command=0x49,
+@@ -270,6 +273,12 @@ class Console(object):
+ 
+     def _print_error(self, error):
+         self.broken = True
++        if self.ipmi_session:
++            self.ipmi_session.unregister_keepalive(self.keepaliveid)
++            if (self.ipmi_session.sol_handler and
++                    self.ipmi_session.sol_handler.__self__ is self):
++                self.ipmi_session.sol_handler = None
++            self.ipmi_session = None
+         if type(error) == dict:
+             self._print_data(error)
+         else:
+@@ -287,9 +296,9 @@ class Console(object):
+     def _got_sol_payload(self, payload):
+         """SOL payload callback
+         """
+-        #TODO(jbjohnso) test cases to throw some likely scenarios at functions
+-        #for example, retry with new data, retry with no new data
+-        #retry with unexpected sequence number
++        # TODO(jbjohnso) test cases to throw some likely scenarios at functions
++        # for example, retry with new data, retry with no new data
++        # retry with unexpected sequence number
+         if type(payload) == dict:  # we received an error condition
+             self.activated = False
+             self._print_error(payload)
+@@ -301,15 +310,16 @@ class Console(object):
+         poweredoff = payload[3] & 0b100000
+         deactivated = payload[3] & 0b10000
+         breakdetected = payload[3] & 0b100
+-        #for now, ignore overrun.  I assume partial NACK for this reason or for
+-        #no reason would be treated the same, new payload with partial data
++        # for now, ignore overrun.  I assume partial NACK for this reason or
++        # for no reason would be treated the same, new payload with partial
++        # data.
+         remdata = ""
+         remdatalen = 0
+         if newseq != 0:  # this packet at least has some data to send to us..
+             if len(payload) > 4:
+                 remdatalen = len(payload[4:])  # store remote len before dupe
+-                    #retry logic, we must ack *this* many even if it is
+-                    #a retry packet with new partial data
++                # retry logic, we must ack *this* many even if it is
++                # a retry packet with new partial data
+                 remdata = struct.pack("%dB" % remdatalen, *payload[4:])
+             if newseq == self.remseq:  # it is a retry, but could have new data
+                 if remdatalen > self.lastsize:
+@@ -322,16 +332,16 @@ class Console(object):
+             if remdata:  # Do not subject callers to empty data
+                 self._print_data(remdata)
+             ackpayload = (0, self.remseq, remdatalen, 0)
+-            #Why not put pending data into the ack? because it's rare
+-            #and might be hard to decide what to do in the context of
+-            #retry situation
++            # Why not put pending data into the ack? because it's rare
++            # and might be hard to decide what to do in the context of
++            # retry situation
+             try:
+                 self.send_payload(ackpayload, retry=False)
+             except exc.IpmiException:
+-                #if the session is broken, then close the SOL session
++                # if the session is broken, then close the SOL session
+                 self.close()
+         if self.myseq != 0 and ackseq == self.myseq:  # the bmc has something
+-                                                      # to say about last xmit
++            # to say about last xmit
+             self.awaitingack = False
+             if nacked and not breakdetected:  # the BMC was in some way unhappy
+                 if poweredoff:
+@@ -370,9 +380,9 @@ class Console(object):
+         to provide their own event loop behavior, though this could be used
+         within the greenthread implementation of caller's choice if desired.
+         """
+-        #wait_for_rsp promises to return a false value when no sessions are
+-        #alive anymore
+-        #TODO(jbjohnso): wait_for_rsp is not returning a true value for our own
+-        #session
++        # wait_for_rsp promises to return a false value when no sessions are
++        # alive anymore
++        # TODO(jbjohnso): wait_for_rsp is not returning a true value for our
++        # own session
+         while (1):
+             session.Session.wait_for_rsp(timeout=600)
+diff --git a/pyghmi/ipmi/events.py b/pyghmi/ipmi/events.py
+index a7bb705..201ef93 100755
+--- a/pyghmi/ipmi/events.py
++++ b/pyghmi/ipmi/events.py
+@@ -1,6 +1,6 @@
+ # vim: tabstop=4 shiftwidth=4 softtabstop=4
+ 
+-# Copyright 2015 Lenovo
++# Copyright 2016 Lenovo
+ #
+ # Licensed under the Apache License, Version 2.0 (the "License");
+ # you may not use this file except in compliance with the License.
+@@ -22,6 +22,15 @@ import pyghmi.ipmi.private.constants as ipmiconst
+ import struct
+ import time
+ 
++try:
++    range = xrange
++except NameError:
++    pass
++try:
++    buffer
++except NameError:
++    buffer = memoryview
++
+ 
+ psucfg_errors = {
+     0: 'Vendor mismatch',
+@@ -31,15 +40,13 @@ psucfg_errors = {
+     4: 'Voltage mismatch',
+ }
+ 
+-
+-
+ firmware_progress = {
+     0: 'Unspecified',
+     1: 'Memory initialization',
+     2: 'Disk initialization',
+     3: 'Non-primary Processor initialization',
+     4: 'User authentication',
+-    5: 'Entering setup',
++    5: 'In setup',
+     6: 'USB initialization',
+     7: 'PCI initialization',
+     8: 'Option ROM initialization',
+@@ -304,7 +311,7 @@ def _fix_sel_time(records, ipmicmd):
+     lasttimestamp = None
+     trimindexes = []
+     correctionenabled = True
+-    for index in reversed(xrange(len(records))):
++    for index in reversed(range(len(records))):
+         record = records[index]
+         if 'timecode' not in record or record['timecode'] == 0xffffffff:
+             continue
+@@ -458,7 +465,6 @@ class EventHandler(object):
+             if additionaldata:
+                 event['event_data'] = additionaldata
+ 
+-
+     def decode_pet(self, specifictrap, petdata):
+         if isinstance(specifictrap, int):
+             specifictrap = struct.unpack('4B', struct.pack('>I', specifictrap))
+@@ -539,6 +545,8 @@ class EventHandler(object):
+             except pygexc.IpmiException as pi:
+                 if pi.ipmicode == 203:
+                     break
++                else:
++                    raise
+             curr = struct.unpack_from('<H', buffer(rsp['data'][:2]))[0]
+             targetlist.append(self._sel_decode(rsp['data'][2:]))
+         return endat
+diff --git a/pyghmi/ipmi/fru.py b/pyghmi/ipmi/fru.py
+index 2c4d27b..3d1eab7 100755
+--- a/pyghmi/ipmi/fru.py
++++ b/pyghmi/ipmi/fru.py
+@@ -188,8 +188,8 @@ class FRU(object):
+             frusubtype = self.sdr.fru_type_and_modifier & 0xff
+             if frutype > 0x10 or frutype < 0x8 or frusubtype not in (0, 1, 2):
+                 return
+-                #TODO(jjohnson2): strict mode to detect pyghmi and BMC
+-                #gaps
++                # TODO(jjohnson2): strict mode to detect pyghmi and BMC
++                # gaps
+                 # raise iexc.PyghmiException(
+                 #     'Unsupported FRU device: {0:x}h, {1:x}h'.format(frutype,
+                 #                                                    frusubtype
+@@ -200,7 +200,7 @@ class FRU(object):
+                 return
+         if self.databytes[0] != 1:
+             return
+-            #TODO(jjohnson2): strict mode to flag potential BMC errors
++            # TODO(jjohnson2): strict mode to flag potential BMC errors
+             # raise iexc.BmcErrorException("Invalid/Unsupported FRU format")
+         # Ignore the internal use even if present.
+         self._parse_chassis()
+@@ -230,12 +230,12 @@ class FRU(object):
+             if lang in (0, 25):
+                 try:
+                     retinfo = retinfo.decode('iso-8859-1')
+-                except UnicodeDecodeError:
++                except (UnicodeError, LookupError):
+                     pass
+             else:
+                 try:
+                     retinfo = retinfo.decode('utf-16le')
+-                except UnicodeDecodeError:
++                except (UnicodeDecodeError, LookupError):
+                     pass
+             # Some things lie about being text.  Do the best we can by
+             # removing trailing spaces and nulls like makes sense for text
+@@ -293,7 +293,7 @@ class FRU(object):
+         inf['Board product name'], offset = self._decode_tlv(offset, language)
+         inf['Board serial number'], offset = self._decode_tlv(offset, language)
+         inf['Board model'], offset = self._decode_tlv(offset, language)
+-        inf['Board FRU Id'], offset = self._decode_tlv(offset, language)  # decode but discard
++        _, offset = self._decode_tlv(offset, language)  # decode but discard
+         inf['board_extra'] = []
+         self.extract_extra(inf['board_extra'], offset, language)
+ 
+diff --git a/pyghmi/ipmi/oem/generic.py b/pyghmi/ipmi/oem/generic.py
+index cf7713c..8c083db 100644
+--- a/pyghmi/ipmi/oem/generic.py
++++ b/pyghmi/ipmi/oem/generic.py
+@@ -14,6 +14,8 @@
+ # See the License for the specific language governing permissions and
+ # limitations under the License.
+ 
++import pyghmi.exceptions as exc
++
+ 
+ class OEMHandler(object):
+     """Handler class for OEM capabilities.
+@@ -173,10 +175,13 @@ class OEMHandler(object):
+         fru['oem_parser'] = None
+         return fru
+ 
+-    def get_oem_firmware(self):
++    def get_oem_firmware(self, bmcver):
+         """Get Firmware information.
+         """
+-        return ()
++        # Here the bmc version is passed into the OEM handler, to allow
++        # the handler to enrich the data. For the generic case, just
++        # provide the generic BMC version, which is all that is possible
++        yield ('BMC Version', {'version': bmcver})
+ 
+     def get_oem_service_log(self):
+         """Get Service Log information.
+@@ -218,6 +223,15 @@ class OEMHandler(object):
+         """Get graphical console launcher"""
+         return ()
+ 
++    def add_extra_net_configuration(self, netdata):
++        """Add additional network configuration data
++
++        Given a standard netdata struct, add details as relevant from
++        OEM commands, modifying the passed dictionary
++        :param netdata: Dictionary to store additional network data
++        """
++        return
++
+     def get_extra_net_configuration(self):
+         """Get extra network configuration parameters (e.g.: IPv6 addresses)"""
+         return {}
+@@ -266,3 +280,32 @@ class OEMHandler(object):
+     def get_media_redirected_image_info(self, image_type_id):
+         """Get Media Image info"""
+         return {}
++
++    def detach_remote_media(self):
++        raise exc.UnsupportedFunctionality()
++
++    def attach_remote_media(self, imagename, username, password):
++        raise exc.UnsupportedFunctionality()
++
++    def set_identify(self, on, duration):
++        """Provide an OEM override for set_identify
++
++        Some systems may require an override for set identify.
++
++        """
++        raise exc.UnsupportedFunctionality()
++
++    def set_alert_ipv6_destination(self, ip, destination, channel):
++        """Set an IPv6 alert destination
++
++        If and only if an implementation does not support standard
++        IPv6 but has an OEM implementation, override this to process
++        the data.
++
++        :param ip: IPv6 address to set
++        :param destination: Destination number
++        :param channel: Channel number to apply
++
++        :returns True if standard parameter set should be suppressed
++        """
++        return False
+\ No newline at end of file
+diff --git a/pyghmi/ipmi/oem/lenovo/handler.py b/pyghmi/ipmi/oem/lenovo/handler.py
+index f6739a7..9bd7890 100755
+--- a/pyghmi/ipmi/oem/lenovo/handler.py
++++ b/pyghmi/ipmi/oem/lenovo/handler.py
+@@ -1,6 +1,6 @@
+ # vim: tabstop=4 shiftwidth=4 softtabstop=4
+ 
+-# Copyright 2015 Lenovo
++# Copyright 2015-2016 Lenovo
+ #
+ # Licensed under the Apache License, Version 2.0 (the "License");
+ # you may not use this file except in compliance with the License.
+@@ -15,6 +15,7 @@
+ # limitations under the License.
+ 
+ import base64
++import binascii
+ import traceback
+ import urllib
+ 
+@@ -29,7 +30,9 @@ from pyghmi.ipmi.oem.lenovo import dimm
+ from pyghmi.ipmi.oem.lenovo import drive
+ 
+ from pyghmi.ipmi.oem.lenovo import firmware
++from pyghmi.ipmi.oem.lenovo import imm
+ from pyghmi.ipmi.oem.lenovo import inventory
++from pyghmi.ipmi.oem.lenovo import nextscale
+ from pyghmi.ipmi.oem.lenovo import pci
+ from pyghmi.ipmi.oem.lenovo import psu
+ from pyghmi.ipmi.oem.lenovo import raid_controller
+@@ -39,8 +42,18 @@ from pyghmi.ipmi.oem.lenovo import energy
+ import pyghmi.util.webclient as wc
+ 
+ import math
+-
++import socket
++import struct
+ import weakref
++try:
++    range = xrange
++except NameError:
++    pass
++try:
++    buffer
++except NameError:
++    buffer = memoryview
++
+ inventory.register_inventory_category(cpu)
+ inventory.register_inventory_category(dimm)
+ inventory.register_inventory_category(pci)
+@@ -148,6 +161,7 @@ asrock_led_status = {
+ }
+ 
+ led_status_default = "Blink"
++mac_format = '{0:02x}:{1:02x}:{2:02x}:{3:02x}:{4:02x}:{5:02x}'
+ 
+ ris_media_types = {
+     1: 'Cd-media',
+@@ -156,6 +170,15 @@ ris_media_types = {
+     8: 'Ris',
+ }
+ 
++def _megarac_abbrev_image(name):
++    # MegaRAC platform in some places needs an abbreviated filename
++    # Their scheme in such a scenario is a max of 20.  Truncation is
++    # acheived by taking the first sixteen, then skipping ahead to the last
++    # 4 (presumably to try to keep '.iso' or '.img' in the name).
++    if len(name) <= 20:
++        return name
++    return name[:16] + name[-4:]
++
+ ris_configuration_parameter_selectors = {
+     0: 'image_name',
+     1: 'source_path',
+@@ -178,8 +201,25 @@ class OEMHandler(generic.OEMHandler):
+         # will need to retain data to differentiate
+         # variations.  For example System X versus Thinkserver
+         self.oemid = oemid
++        self._fpc_variant = None
+         self.ipmicmd = weakref.proxy(ipmicmd)
++        self._has_megarac = None
+         self.oem_inventory_info = None
++        self._mrethidx = None
++        self._hasimm = None
++        self._hasxcc = None
++        if self.has_xcc:
++            self.immhandler = imm.XCCClient(ipmicmd)
++        elif self.has_imm:
++            self.immhandler = imm.IMMClient(ipmicmd)
++
++    @property
++    def _megarac_eth_index(self):
++        if self._mrethidx is None:
++            chan = self.ipmicmd.get_network_channel()
++            rsp = self.ipmicmd.xraw_command(0x32, command=0x62, data=(chan,))
++            self._mrethidx = rsp['data'][0]
++        return self._mrethidx
+ 
+     def get_video_launchdata(self):
+         if self.has_tsm:
+@@ -300,6 +340,26 @@ class OEMHandler(generic.OEMHandler):
+         return None
+ 
+     @property
++    def is_fpc(self):
++        """True if the target is a Lenovo nextscale fan power controller
++        """
++        fpc_id = (19046, 32, 1063)
++        smm_id = (19046, 32, 1180)
++        currid = (self.oemid['manufacturer_id'], self.oemid['device_id'],
++                  self.oemid['product_id'])
++        if currid == fpc_id:
++            self._fpc_variant = 6
++        elif currid == smm_id:
++            self._fpc_variant = 2
++        return self._fpc_variant
++
++    @property
++    def is_sd350(self):
++        return (19046, 32, 13616) == (self.oemid['manufacturer_id'],
++                                      self.oemid['device_id'],
++                                      self.oemid['product_id'])
++
++    @property
+     def has_tsm(self):
+         """True if this particular server have a TSM based service processor
+         """
+@@ -361,6 +421,8 @@ class OEMHandler(generic.OEMHandler):
+             if not self.oem_inventory_info:
+                 self._collect_tsm_inventory()
+             return iter(self.oem_inventory_info)
++        elif self.has_imm:
++            return self.immhandler.get_hw_descriptions()
+         return ()
+ 
+     def get_oem_inventory(self):
+@@ -368,11 +430,33 @@ class OEMHandler(generic.OEMHandler):
+             self._collect_tsm_inventory()
+             for compname in self.oem_inventory_info:
+                 yield (compname, self.oem_inventory_info[compname])
++        elif self.has_imm:
++            for inv in self.immhandler.get_hw_inventory():
++                yield inv
++
++    def get_sensor_data(self):
++        if self.is_fpc:
++            for name in nextscale.get_sensor_names(self._fpc_variant):
++                yield nextscale.get_sensor_reading(name, self.ipmicmd,
++                                                   self._fpc_variant)
++
++    def get_sensor_descriptions(self):
++        if self.is_fpc:
++            return nextscale.get_sensor_descriptions(self._fpc_variant)
++        return ()
++
++    def get_sensor_reading(self, sensorname):
++        if self.is_fpc:
++            return nextscale.get_sensor_reading(sensorname, self.ipmicmd,
++                                                self._fpc_variant)
++        return ()
+ 
+     def get_inventory_of_component(self, component):
+         if self.has_tsm or self.has_ami or self.has_asrock:
+             self._collect_tsm_inventory()
+             return self.oem_inventory_info.get(component, None)
++        if self.has_imm:
++            return self.immhandler.get_component_inventory(component)
+ 
+     def get_cmd_type (self, categorie_item, catspec): 
+         if self.has_asrock:
+@@ -393,7 +477,7 @@ class OEMHandler(generic.OEMHandler):
+         for catid, catspec in inventory.categories.items():
+             #skip the inventory fields if the system is RS160  
+             if asrock and catid not in categorie_items:
+-                    continue
++                continue
+                 
+             if (catspec.get("workaround_bmc_bug", False) and catspec["workaround_bmc_bug"]("ami" if self.has_ami else "lenovo")):
+                 rsp = None
+@@ -404,7 +488,7 @@ class OEMHandler(generic.OEMHandler):
+                 
+                 tmp_command["data"] = list(tmp_command["data"])
+                 count = 0
+-                for i in xrange(0x01, 0xff):
++                for i in range(0x01, 0xff):
+                     tmp_command["data"][-1] = i
+                     try:
+                         partrsp = self.ipmicmd.xraw_command(**tmp_command)
+@@ -441,7 +525,7 @@ class OEMHandler(generic.OEMHandler):
+                 )
+             except Exception:
+                 # If we can't parse an inventory category, ignore it
+-                print traceback.print_exc()
++                print(traceback.print_exc())
+                 continue
+ 
+             for item in items:
+@@ -461,7 +545,7 @@ class OEMHandler(generic.OEMHandler):
+                     self.oem_inventory_info[key] = item
+                 except Exception:
+                     # If we can't parse an inventory item, ignore it
+-                    print traceback.print_exc()
++                    print(traceback.print_exc())
+                     continue
+ 
+     def get_leds(self):
+@@ -470,12 +554,11 @@ class OEMHandler(generic.OEMHandler):
+         led_set = leds
+         led_set_status = led_status
+         
+-        asrock = self.has_asrock
+         if self.has_ami:
+             cmd = 0x05
+             led_set = ami_leds
+             led_set_status = ami_led_status
+-        elif asrock:
++        elif self.has_asrock:
+             cmd = 0x50
+             #because rs160 has different led info with ts460 
+             if self.isTS460:
+@@ -485,20 +568,27 @@ class OEMHandler(generic.OEMHandler):
+                 
+             led_set_status = asrock_led_status
+         
+-        for (name, id_) in led_set.items():
+-            try:
+-                if asrock:
+-                    rsp = self.ipmicmd.xraw_command(netfn=0x3A, command=cmd,
+-                                                    data=(0x03, id_, 0x00))
+-                    status = ord(rsp['data'][1])
+-                else:
+-                    rsp = self.ipmicmd.xraw_command(netfn=0x3A, command=cmd,
+-                                                    data=(id_,))
+-                    status = ord(rsp['data'][0])
+-            except pygexc.IpmiException:
+-                continue  # Ignore LEDs we can't retrieve
+-            status = led_set_status.get(status, led_status_default)
+-            yield (name, {'status': status})
++		if self.has_ami or self.has_asrock or self.has_tsm:
++	        for (name, id_) in led_set.items():
++	            try:
++	                if self.has_asrock:
++	                    rsp = self.ipmicmd.xraw_command(netfn=0x3A, command=cmd,
++	                                                    data=(0x03, id_, 0x00))
++	                    status = ord(rsp['data'][1])
++	                else:
++	                    rsp = self.ipmicmd.xraw_command(netfn=0x3A, command=cmd,
++	                                                    data=(id_,))
++	                    status = ord(rsp['data'][0])
++	            except pygexc.IpmiException:
++	                continue  # Ignore LEDs we can't retrieve
++	            status = led_set_status.get(status, led_status_default)
++	            yield (name, {'status': status})
++
++    def set_identify(self, on, duration):
++        if on and not duration and self.is_sd350:
++            self.ipmicmd.xraw_command(netfn=0x3a, command=6, data=(1, 1))
++        else:
++            raise pygexc.UnsupportedFunctionality()
+ 
+     def process_fru(self, fru):
+         if fru is None:
+@@ -531,7 +621,7 @@ class OEMHandler(generic.OEMHandler):
+                 byteguid.extend('\x00' * (16 - len(byteguid)))
+                 if byteguid not in ('\x20' * 16, '\x00' * 16, '\xff' * 16):
+                     fru['UUID'] = util.decode_wireformat_uuid(byteguid)
+-            except (AttributeError, KeyError):
++            except (AttributeError, KeyError, IndexError):
+                 pass
+             return fru
+         elif self.has_asrock:
+@@ -545,14 +635,83 @@ class OEMHandler(generic.OEMHandler):
+             except (AttributeError, KeyError):
+                 pass
+             return fru
++        elif self.has_imm:
++            fru['oem_parser'] = 'lenovo'
++            try:
++                bextra = fru['board_extra']
++                fru['FRU Number'] = bextra[0]
++                fru['Revision'] = bextra[4]
++                macs = bextra[6]
++                macprefix = None
++                idx = 0
++                endidx = len(macs) - 5
++                macprefix = None
++                while idx < endidx:
++                    currmac = macs[idx:idx+6]
++                    if not isinstance(currmac, bytearray):
++                        # invalid vpd format, abort attempts to extract
++                        # mac in this way
++                        break
++                    if currmac == b'\x00\x00\x00\x00\x00\x00':
++                        break
++                    # VPD may veer off, detect and break off
++                    if macprefix is None:
++                        macprefix = currmac[:3]
++                    elif currmac[:3] != macprefix:
++                        break
++                    ms = mac_format.format(*currmac)
++                    ifidx = idx / 6 + 1
++                    fru['MAC Address {0}'.format(ifidx)] = ms
++                    idx = idx + 6
++            except (AttributeError, KeyError, IndexError):
++                pass
++            return fru
+         else:
+             fru['oem_parser'] = None
+             return fru
+ 
+-    def get_oem_firmware(self):
+-        asrock = self.has_asrock
+-        
+-        if self.has_tsm or self.has_ami or asrock:
++    @property
++    def has_xcc(self):
++        if self._hasxcc is not None:
++            return self._hasxcc
++        try:
++            bdata = self.ipmicmd.xraw_command(netfn=0x3a, command=0xc1)
++        except pygexc.IpmiException:
++            self._hasxcc = False
++            self._hasimm = False
++            return False
++        if len(bdata['data'][:]) != 3:
++            self._hasimm = False
++            self._hasxcc = False
++            return False
++        rdata = bytearray(bdata['data'][:])
++        self._hasxcc = rdata[1] & 16 == 16
++        if self._hasxcc:
++            # For now, have imm calls go to xcc, since they are providing same
++            # interface.  Longer term the hope is that all the Lenovo
++            # stuff will branch at init, and not have conditionals
++            # in all the functions
++            self._hasimm = self._hasxcc
++        return self._hasxcc
++
++    @property
++    def has_imm(self):
++        if self._hasimm is not None:
++            return self._hasimm
++        try:
++            bdata = self.ipmicmd.xraw_command(netfn=0x3a, command=0xc1)
++        except pygexc.IpmiException:
++            self._hasimm = False
++            return False
++        if len(bdata['data'][:]) != 3:
++            self._hasimm = False
++            return False
++        rdata = bytearray(bdata['data'][:])
++        self._hasimm = (rdata[1] & 1 == 1) or (rdata[1] & 16 == 16)
++        return self._hasimm
++
++    def get_oem_firmware(self, bmcver):
++        if self.has_tsm or self.has_ami or self.has_asrock:
+             command = firmware.get_categories()["firmware"]
+             
+             fw_cmd = self.get_cmd_type ("firmware", command)      
+@@ -561,7 +720,7 @@ class OEMHandler(generic.OEMHandler):
+             # the newest Lenovo ThinkServer versions are returning Bios version
+             # numbers through another command
+             bios_versions = None
+-            if self.has_tsm or asrock:
++            if self.has_tsm or self.has_asrock:
+                 bios_command = firmware.get_categories()["bios_version"]
+                 
+                 bios_cmd = self.get_cmd_type ("bios_version", bios_command)                    
+@@ -572,8 +731,13 @@ class OEMHandler(generic.OEMHandler):
+                     bios_versions = bios_command["parser"](bios_rsp['data'])
+             # pass bios versions to firmware parser
+             # TODO: find a better way to implement this
+-            return command["parser"](rsp["data"], bios_versions, asrock)
+-        return ()
++            return command["parser"](rsp["data"], bios_versions, self.has_asrock)
++        elif self.has_imm:
++            return self.immhandler.get_firmware_inventory(bmcver)
++        elif self.is_fpc:
++            return nextscale.get_fpc_firmware(bmcver, self.ipmicmd,
++                                              self._fpc_variant)
++        return super(OEMHandler, self).get_oem_firmware(bmcver)
+ 
+     def get_oem_capping_enabled(self):
+         if self.has_tsm:
+@@ -645,10 +809,10 @@ class OEMHandler(generic.OEMHandler):
+     def _get_ts_remote_console(self, bmc, username, password):
+         # We don't establish non-secure connections without checking
+         # certificates
+-        if not self._certverify:
++        if not self.ipmicmd.certverify:
+             return
+         conn = wc.SecureHTTPConnection(bmc, 443,
+-            verifycallback=self._certverify)
++                                       verifycallback=self.ipmicmd.certverify)
+         conn.connect()
+         params = urllib.urlencode({
+             'WEBVAR_USERNAME': username,
+@@ -677,7 +841,8 @@ class OEMHandler(generic.OEMHandler):
+                 'Connection': 'keep-alive',
+                 'Cookie': 'SessionCookie=' + session_id,
+             }
+-            conn.request('GET',
++            conn.request(
++                'GET',
+                 '/Java/jviewer.jnlp?EXTRNIP=' + bmc + '&JNLPSTR=JViewer',
+                 None, headers)
+             rsp = conn.getresponse()
+@@ -688,8 +853,27 @@ class OEMHandler(generic.OEMHandler):
+ 
+     def get_graphical_console(self):
+         return self._get_ts_remote_console(self.ipmicmd.bmc,
+-            self.ipmicmd.ipmi_session.userid,
+-            self.ipmicmd.ipmi_session.password)
++                                           self.ipmicmd.ipmi_session.userid,
++                                           self.ipmicmd.ipmi_session.password)
++
++    def add_extra_net_configuration(self, netdata):
++        if self.has_tsm:
++            ipv6_addr = self.ipmicmd.xraw_command(
++                netfn=0x0c, command=0x02,
++                data=(0x01, 0xc5, 0x00, 0x00))["data"][1:]
++            if not ipv6_addr:
++                return
++            ipv6_prefix = ord(self.ipmicmd.xraw_command(
++                netfn=0xc, command=0x02,
++                data=(0x1, 0xc6, 0, 0))['data'][1])
++            if hasattr(socket, 'inet_ntop'):
++                ipv6str = socket.inet_ntop(socket.AF_INET6, ipv6_addr)
++            else:
++                # fall back to a dumber, but more universal formatter
++                ipv6str = binascii.b2a_hex(ipv6_addr)
++                ipv6str = ':'.join([ipv6str[x:x+4] for x in range(0, 32, 4)])
++            netdata['ipv6_addresses'] = [
++                '{0}/{1}'.format(ipv6str, ipv6_prefix)]
+ 
+     def get_extra_net_configuration(self):
+         ipv6_addr = self.ipmicmd.xraw_command(netfn=0x0c, command=0x02,
+@@ -890,3 +1074,153 @@ class OEMHandler(generic.OEMHandler):
+                 return_dict['image_index']   = rsp_data[259]
+                 return_dict['session_index'] = rsp_data[260]
+         return return_dict
++
++    @property
++    def has_megarac(self):
++        # if there is functionality that is the same for tsm or generic
++        # megarac, then this is appropriate.  If there's a TSM specific
++        # preferred, use has_tsm first
++        if self._has_megarac is not None:
++            return self._has_megarac
++        self._has_megarac = False
++        try:
++            rsp = self.ipmicmd.xraw_command(netfn=0x32, command=0x7e)
++            # We don't have a handy classify-only, so use get sel policy
++            # rsp should have a length of one, and be either '\x00' or '\x01'
++            if len(rsp['data'][:]) == 1 and rsp['data'][0] in ('\x00', '\x01'):
++                self._has_megarac = True
++        except pygexc.IpmiException as ie:
++            if ie.ipmicode == 0:
++                # if it's a generic IpmiException rather than an error code
++                # from the BMC, then this is a deeper problem than just an
++                # invalid command or command length or similar
++                raise
++        return self._has_megarac
++
++    def set_alert_ipv6_destination(self, ip, destination, channel):
++        if self.has_megarac:
++            ethidx = self._megarac_eth_index
++            reqdata = bytearray([channel, 193, destination, ethidx, 0])
++            parsedip = socket.inet_pton(socket.AF_INET6, ip)
++            reqdata.extend(parsedip)
++            reqdata.extend('\x00\x00\x00\x00\x00\x00')
++            self.ipmicmd.xraw_command(netfn=0xc, command=1, data=reqdata)
++            return True
++        return False
++
++    def _set_short_ris_string(self, selector, value):
++        data = (1, selector, 0) + struct.unpack('{0}B'.format(len(value)),
++                                                value)
++        self.ipmicmd.xraw_command(netfn=0x32, command=0x9f, data=data)
++
++    def _set_ris_string(self, selector, value):
++        if len(value) > 256:
++            raise pygexc.UnsupportedFunctionality(
++                'Value exceeds 256 characters: {0}'.format(value))
++        padded = value + (256 - len(value)) * '\x00'
++        padded = list(struct.unpack('256B', padded))
++        # 8 = RIS, 4 = hd, 2 = fd, 1 = cd
++        try:  # try and clear in-progress if left incomplete
++            self.ipmicmd.xraw_command(netfn=0x32, command=0x9f,
++                                      data=(1, selector, 0, 0))
++        except pygexc.IpmiException:
++            pass
++        # set in-progress
++        self.ipmicmd.xraw_command(netfn=0x32, command=0x9f,
++                                  data=(1, selector, 0, 1))
++        # now do the set
++        for x in range(0, 256, 64):
++            currdata = padded[x:x+64]
++            currchunk = x // 64 + 1
++            cmddata = [1, selector, currchunk] + currdata
++            self.ipmicmd.xraw_command(netfn=0x32, command=0x9f, data=cmddata)
++        # unset in-progress
++        self.ipmicmd.xraw_command(netfn=0x32, command=0x9f,
++                                  data=(1, selector, 0, 0))
++
++    def _megarac_fetch_image_shortnames(self):
++        rsp = self.ipmicmd.xraw_command(netfn=0x32, command=0xd8,
++                                        data=(7, 1, 0))
++        imgnames = rsp['data'][1:]
++        shortnames = []
++        for idx in range(0, len(imgnames), 22):
++            shortnames.append(imgnames[idx+2:idx+22].rstrip('\0'))
++        return shortnames
++
++    def _megarac_media_waitforready(self, imagename):
++        # first, we have, sadly, a 10 second grace period for some invisible
++        # async activity to get far enough long to monitor
++        self.ipmicmd.ipmi_session.pause(10)
++        risenabled = '\x00'
++        mountok = '\xff'
++        while risenabled != '\x01':
++            risenabled = self.ipmicmd.xraw_command(
++                netfn=0x32, command=0x9e, data=(8, 10))['data'][2]
++        while mountok == '\xff':
++            mountok = self.ipmicmd.xraw_command(
++                netfn=0x32, command=0x9e, data=(1, 8))['data'][2]
++        targshortname = _megarac_abbrev_image(imagename)
++        shortnames = self._megarac_fetch_image_shortnames()
++        while targshortname not in shortnames:
++            self.ipmicmd.wait_for_rsp(1)
++            shortnames = self._megarac_fetch_image_shortnames()
++        self.ipmicmd.ipmi_session.pause(10)
++        try:
++            self.ipmicmd.xraw_command(netfn=0x32, command=0xa0, data=(1, 0))
++            self.ipmicmd.ipmi_session.pause(5)
++        except pygexc.IpmiException:
++            pass
++
++    def _megarac_attach_media(self, proto, username, password, imagename,
++                              domain, path, host):
++        # First we must ensure that the RIS is actually enabled
++        self.ipmicmd.xraw_command(netfn=0x32, command=0x9f, data=(8, 10, 0, 1))
++        if username is not None:
++            self._set_ris_string(3, username)
++        if password is not None:
++            self._set_short_ris_string(4, password)
++        if domain is not None:
++            self._set_ris_string(6, domain)
++        self._set_ris_string(1, path)
++        ip = util.get_ipv4(host)[0]
++        self._set_short_ris_string(2, ip)
++        self._set_short_ris_string(5, proto)
++        # now to restart RIS to have changes take effect...
++        self.ipmicmd.xraw_command(netfn=0x32, command=0x9f, data=(8, 11))
++        # now to kick off the requested mount
++        self._megarac_media_waitforready(imagename)
++        self._set_ris_string(0, imagename)
++        self.ipmicmd.xraw_command(netfn=0x32, command=0xa0,
++                                  data=(1, 1))
++
++    def attach_remote_media(self, url, username, password):
++        if self.has_imm:
++            self.immhandler.attach_remote_media(url, username, password)
++        elif self.has_megarac:
++            proto, host, path = util.urlsplit(url)
++            if proto == 'smb':
++                proto = 'cifs'
++            domain = None
++            path, imagename = path.rsplit('/', 1)
++            if username is not None and '@' in username:
++                username, domain = username.split('@', 1)
++            elif username is not None and '\\' in username:
++                domain, username = username.split('\\', 1)
++            try:
++                self._megarac_attach_media(proto, username, password,
++                                           imagename, domain, path, host)
++            except pygexc.IpmiException as ie:
++                if ie.ipmicode in (0x92, 0x99):
++                    # if starting from scratch, this can happen...
++                    self._megarac_attach_media(proto, username, password,
++                                               imagename, domain, path, host)
++                else:
++                    raise
++
++    def detach_remote_media(self):
++        if self.has_imm:
++            self.immhandler.detach_remote_media()
++        elif self.has_megarac:
++            self.ipmicmd.xraw_command(
++                netfn=0x32, command=0x9f, data=(8, 10, 0, 0))
++            self.ipmicmd.xraw_command(netfn=0x32, command=0x9f, data=(8, 11))
+\ No newline at end of file
+diff --git a/pyghmi/ipmi/oem/lenovo/inventory.py b/pyghmi/ipmi/oem/lenovo/inventory.py
+index e5814dd..32e050f 100755
+--- a/pyghmi/ipmi/oem/lenovo/inventory.py
++++ b/pyghmi/ipmi/oem/lenovo/inventory.py
+@@ -83,17 +83,17 @@ def parse_inventory_category(name, info, asrock=False, countable=True):
+ 
+     entries = []
+     while cur < len(raw):
+-        read, parser = categories[name]["parser"](raw[cur:])
++        read, cpu = categories[name]["parser"](raw[cur:])
+         cur = cur + read
+         # Account for discarded entries (because they are not present)
+-        if parser is None:
++        if cpu is None:
+             discarded += 1
+             continue
+         if not countable:
+             # count by myself
+             count += 1
+-            parser["index"] = count
+-        entries.append(parser)
++            cpu["index"] = count
++        entries.append(cpu)
+ 
+     # TODO(avidal): raise specific exception to point that there's data left in
+     # the buffer
+diff --git a/pyghmi/ipmi/oem/lookup.py b/pyghmi/ipmi/oem/lookup.py
+index 8019a7e..6cde32d 100755
+--- a/pyghmi/ipmi/oem/lookup.py
++++ b/pyghmi/ipmi/oem/lookup.py
+@@ -23,7 +23,6 @@ oemmap = {
+     2 : ibm,
+     20301: ibm,  # IBM x86 (and System X at Lenovo)
+     19046: lenovo,  # Lenovo x86 (e.g. Thinkserver)
+-    7154: lenovo
+ }
+ 
+ 
+diff --git a/pyghmi/ipmi/private/constants.py b/pyghmi/ipmi/private/constants.py
+index 8f29431..d0ef62a 100644
+--- a/pyghmi/ipmi/private/constants.py
++++ b/pyghmi/ipmi/private/constants.py
+@@ -14,11 +14,11 @@
+ # See the License for the specific language governing permissions and
+ # limitations under the License.
+ 
++import pyghmi.constants as const
++
+ IPMI_BMC_ADDRESS = 0x20
+ IPMI_SEND_MESSAGE_CMD = 0x34
+ 
+-import pyghmi.constants as const
+-
+ 
+ payload_types = {
+     'ipmi': 0x0,
+diff --git a/pyghmi/ipmi/private/serversession.py b/pyghmi/ipmi/private/serversession.py
+index ce184d1..dbbe143 100644
+--- a/pyghmi/ipmi/private/serversession.py
++++ b/pyghmi/ipmi/private/serversession.py
+@@ -17,11 +17,13 @@
+ # This represents the server side of a session object
+ # Split into a separate file to avoid overly manipulating the as-yet
+ # client-centered session object
++import collections
+ import hashlib
+ import hmac
+ import os
+ import pyghmi.ipmi.private.constants as constants
+ import pyghmi.ipmi.private.session as ipmisession
++import socket
+ import struct
+ import uuid
+ 
+@@ -36,23 +38,23 @@ class ServerSession(ipmisession.Session):
+         return object.__new__(cls)
+ 
+     def create_open_session_response(self, request):
+-        clienttag = ord(request[0])
++        clienttag = request[0]
+         # role = request[1]
+-        self.clientsessionid = list(struct.unpack('4B', request[4:8]))
++        self.clientsessionid = request[4:8]
+         # TODO(jbjohnso): intelligently handle integrity/auth/conf
+-        #for now, forcibly do cipher suite 3
+-        self.managedsessionid = list(struct.unpack('4B', os.urandom(4)))
+-        #table 13-17, 1 for now (hmac-sha1), 3 should also be supported
+-        #table 13-18, integrity, 1 for now is hmac-sha1-96, 4 is sha256
+-        #confidentiality: 1 is aes-cbc-128, the only one
++        # for now, forcibly do cipher suite 3
++        self.managedsessionid = os.urandom(4)
++        # table 13-17, 1 for now (hmac-sha1), 3 should also be supported
++        # table 13-18, integrity, 1 for now is hmac-sha1-96, 4 is sha256
++        # confidentiality: 1 is aes-cbc-128, the only one
+         self.privlevel = 4
+-        response = ([clienttag, 0, self.privlevel, 0] +
++        response = (bytearray([clienttag, 0, self.privlevel, 0]) +
+                     self.clientsessionid + self.managedsessionid +
+-                    [
++                    bytearray([
+                         0, 0, 0, 8, 1, 0, 0, 0,  # auth
+                         1, 0, 0, 8, 1, 0, 0, 0,  # integrity
+                         2, 0, 0, 8, 1, 0, 0, 0,  # privacy
+-                    ])
++                    ]))
+         return response
+ 
+     def __init__(self, authdata, kg, clientaddr, netsocket, request, uuid,
+@@ -74,8 +76,9 @@ class ServerSession(ipmisession.Session):
+         self.kg = kg
+         self.socket = netsocket
+         self.sockaddr = clientaddr
++        self.pktqueue = collections.deque([])
+         ipmisession.Session.bmc_handlers[clientaddr] = self
+-        response = self.create_open_session_response(request)
++        response = self.create_open_session_response(bytearray(request))
+         self.send_payload(response,
+                           constants.payload_types['rmcpplusopenresponse'],
+                           retry=False)
+@@ -94,33 +97,30 @@ class ServerSession(ipmisession.Session):
+         self.maxpriv = self.rolem & 0b111
+         namepresent = data[27]
+         if namepresent == 0:
+-            #ignore null username for now
++            # ignore null username for now
+             return
+-        usernamebytes = data[28:]
+-        self.username = struct.pack('%dB' % len(usernamebytes), *usernamebytes)
+-        if self.username not in self.authdata:
++        self.username = bytes(data[28:])
++        if self.username.decode('utf-8') not in self.authdata:
+             # don't think about invalid usernames for now
+             return
+         uuidbytes = self.uuid.bytes
+-        uuidbytes = list(struct.unpack('%dB' % len(uuidbytes), uuidbytes))
+         self.uuiddata = uuidbytes
+-        self.Rc = list(struct.unpack('16B', os.urandom(16)))
++        self.Rc = os.urandom(16)
+         hmacdata = (self.clientsessionid + self.managedsessionid +
+                     self.Rm + self.Rc + uuidbytes +
+-                    [self.rolem, len(self.username)])
+-        hmacdata = struct.pack('%dB' % len(hmacdata), *hmacdata)
++                    bytearray([self.rolem, len(self.username)]))
+         hmacdata += self.username
+-        self.kuid = self.authdata[self.username]
++        self.kuid = self.authdata[self.username.decode('utf-8')].encode(
++            'utf-8')
+         if self.kg is None:
+             self.kg = self.kuid
+         authcode = hmac.new(
+-            self.kuid, hmacdata, hashlib.sha1).digest()
+-        authcode = list(struct.unpack('%dB' % len(authcode), authcode))
++            self.kuid, bytes(hmacdata), hashlib.sha1).digest()
+         # regretably, ipmi mandates the server send out an hmac first
+         # akin to a leak of /etc/shadow, not too worrisome if the secret
+         # is complex, but terrible for most likely passwords selected by
+         # a human
+-        newmessage = ([clienttag, 0, 0, 0] + self.clientsessionid +
++        newmessage = (bytearray([clienttag, 0, 0, 0]) + self.clientsessionid +
+                       self.Rc + uuidbytes + authcode)
+         self.send_payload(newmessage, constants.payload_types['rakp2'],
+                           retry=False)
+@@ -134,32 +134,31 @@ class ServerSession(ipmisession.Session):
+         # respond correctly a TODO(jjohnson2), since Kg being used
+         # yet incorrect is a scenario why rakp3 could be bad
+         # even if rakp2 was good
+-        RmRc = struct.pack('B' * len(self.Rm + self.Rc), *(self.Rm + self.Rc))
++        RmRc = self.Rm + self.Rc
+         self.sik = hmac.new(self.kg,
+-                            RmRc +
++                            bytes(RmRc) +
+                             struct.pack("2B", self.rolem,
+                                         len(self.username)) +
+                             self.username, hashlib.sha1).digest()
+-        self.k1 = hmac.new(self.sik, '\x01' * 20, hashlib.sha1).digest()
+-        self.k2 = hmac.new(self.sik, '\x02' * 20, hashlib.sha1).digest()
++        self.k1 = hmac.new(self.sik, b'\x01' * 20, hashlib.sha1).digest()
++        self.k2 = hmac.new(self.sik, b'\x02' * 20, hashlib.sha1).digest()
+         self.aeskey = self.k2[0:16]
+-        hmacdata = struct.pack('B' * len(self.Rc), *self.Rc) +\
+-            struct.pack("4B", *self.clientsessionid) +\
++        hmacdata = self.Rc +\
++            self.clientsessionid +\
+             struct.pack("2B", self.rolem,
+                         len(self.username)) +\
+             self.username
+-        expectedauthcode = hmac.new(self.kuid, hmacdata, hashlib.sha1).digest()
++        expectedauthcode = hmac.new(self.kuid, bytes(hmacdata), hashlib.sha1
++                                    ).digest()
+         authcode = struct.pack("%dB" % len(data[8:]), *data[8:])
+         if expectedauthcode != authcode:
+-            #TODO(jjohnson2): RMCP error back at invalid rakp3
++            # TODO(jjohnson2): RMCP error back at invalid rakp3
+             return
+         clienttag = data[0]
+         if data[1] != 0:
+             # client did not like our response, so ignore the rakp3
+             return
+-        self.localsid = struct.unpack('<I',
+-                                      struct.pack(
+-                                          '4B', *self.managedsessionid))[0]
++        self.localsid = struct.unpack('<I', self.managedsessionid)[0]
+         self.ipmicallback = self.handle_client_request
+         self._send_rakp4(clienttag, 0)
+ 
+@@ -184,15 +183,17 @@ class ServerSession(ipmisession.Session):
+         pass
+ 
+     def _send_rakp4(self, tagvalue, statuscode):
+-        payload = [tagvalue, statuscode, 0, 0] + self.clientsessionid
++        payload = bytearray(
++            [tagvalue, statuscode, 0, 0]) + self.clientsessionid
+         hmacdata = self.Rm + self.managedsessionid + self.uuiddata
+         hmacdata = struct.pack('%dB' % len(hmacdata), *hmacdata)
+         authdata = hmac.new(self.sik, hmacdata, hashlib.sha1).digest()[:12]
+-        payload += struct.unpack('%dB' % len(authdata), authdata)
++        payload += authdata
+         self.send_payload(payload, constants.payload_types['rakp4'],
+                           retry=False)
+         self.confalgo = 'aes'
+         self.integrityalgo = 'sha1'
++        self.sequencenumber = 1
+         self.sessionid = struct.unpack(
+             '<I', struct.pack('4B', *self.clientsessionid))[0]
+ 
+@@ -206,7 +207,7 @@ class ServerSession(ipmisession.Session):
+         After the session inactivity timeout, this invalidate the client
+         session.
+         """
+-        #for now, we will have a non-configurable 60 second timeout
++        # for now, we will have a non-configurable 60 second timeout
+         pass
+ 
+     def _handle_channel_auth_cap(self, request):
+@@ -225,9 +226,9 @@ class ServerSession(ipmisession.Session):
+ 
+ 
+ class IpmiServer(object):
+-    #auth capabilities for now is a static payload
+-    #for now always completion code 0, otherwise ignore
+-    #authentication type fixed to ipmi2, ipmi1 forbidden
++    # auth capabilities for now is a static payload
++    # for now always completion code 0, otherwise ignore
++    # authentication type fixed to ipmi2, ipmi1 forbidden
+     # 0b10000000
+ 
+     def __init__(self, authdata, port=623, bmcuuid=None, address='::'):
+@@ -239,7 +240,7 @@ class IpmiServer(object):
+                         reasonable subset.
+         :param port: The default port number to bind to.  Defaults to the
+                      standard 623
+-        :param address: The IPv6 address to bind to. Defaults to '::' (all
++        :param address: The IP address to bind to. Defaults to '::' (all
+                         zeroes)
+         """
+         self.revision = 0
+@@ -250,6 +251,7 @@ class IpmiServer(object):
+         self.additionaldevices = 0
+         self.mfgid = 0
+         self.prodid = 0
++        self.pktqueue = collections.deque([])
+         if bmcuuid is None:
+             self.uuid = uuid.uuid4()
+         else:
+@@ -264,21 +266,29 @@ class IpmiServer(object):
+                                    authstatus, chancap, *oemdata)
+         self.kg = None
+         self.timeout = 60
+-        self.serversocket = ipmisession.Session._assignsocket(
+-            (address, port, 0, 0))
++        addrinfo = socket.getaddrinfo(address, port, 0,
++                                      socket.SOCK_DGRAM)[0]
++        self.serversocket = ipmisession.Session._assignsocket(addrinfo)
+         ipmisession.Session.bmc_handlers[self.serversocket] = self
+ 
+-    def send_auth_cap(self, myaddr, mylun, clientaddr, clientlun, sockaddr):
+-        header = '\x06\x00\xff\x07\x00\x00\x00\x00\x00\x00\x00\x00\x00\x10'
+-        headerdata = (clientaddr, clientlun | (7 << 2))
++    def send_auth_cap(self, myaddr, mylun, clientaddr, clientlun, clientseq,
++                      sockaddr):
++        header = bytearray(
++            b'\x06\x00\xff\x07\x00\x00\x00\x00\x00\x00\x00\x00\x00\x10')
++        headerdata = [clientaddr, clientlun | (7 << 2)]
+         headersum = ipmisession._checksum(*headerdata)
+-        header += struct.pack('BBBBBB',
+-                              *(headerdata + (headersum, myaddr, mylun, 0x38)))
++        header += bytearray(headerdata + [headersum, myaddr,
++                                          mylun | (clientseq << 2), 0x38])
+         header += self.authcap
+-        bodydata = struct.unpack('B' * len(header[17:]), header[17:])
+-        header += chr(ipmisession._checksum(*bodydata))
++        bodydata = struct.unpack('B' * len(header[17:]), bytes(header[17:]))
++        header.append(ipmisession._checksum(*bodydata))
+         ipmisession._io_sendto(self.serversocket, header, sockaddr)
+ 
++    def process_pktqueue(self):
++        while self.pktqueue:
++            pkt = self.pktqueue.popleft()
++            self.sessionless_data(pkt[0], pkt[1])
++
+     def sessionless_data(self, data, sockaddr):
+         """Examines unsolocited packet and decides appropriate action.
+ 
+@@ -290,34 +300,38 @@ class IpmiServer(object):
+         """
+         if len(data) < 22:
+             return
+-        if not (data[0] == '\x06' and data[2:4] == '\xff\x07'):  # not ipmi
++        data = bytearray(data)
++        if not (data[0] == 6 and data[2:4] == b'\xff\x07'):  # not ipmi
+             return
+-        if data[4] == '\x06':  # ipmi 2 payload...
++        if data[4] == 6:  # ipmi 2 payload...
+             payloadtype = data[5]
+-            if payloadtype not in ('\x00', '\x10'):
++            if payloadtype not in (0, 16):
+                 return
+-            if payloadtype == '\x10':  # new session to handle conversation
++            if payloadtype == 16:  # new session to handle conversation
+                 ServerSession(self.authdata, self.kg, sockaddr,
+                               self.serversocket, data[16:], self.uuid,
+                               bmc=self)
+                 return
+             data = data[13:]  # ditch 13 bytes so the payload works out
+-        myaddr, netfnlun = struct.unpack('2B', data[14:16])
++        myaddr, netfnlun = struct.unpack('2B', bytes(data[14:16]))
+         netfn = (netfnlun & 0b11111100) >> 2
+         mylun = netfnlun & 0b11
+         if netfn == 6:  # application request
+-            if data[19] == '\x38':  # cmd = get channel auth capabilities
+-                verchannel, level = struct.unpack('2B', data[20:22])
++            if data[19] == 0x38:  # cmd = get channel auth capabilities
++                verchannel, level = struct.unpack('2B', bytes(data[20:22]))
+                 version = verchannel & 0b10000000
+                 if version != 0b10000000:
+                     return
+                 channel = verchannel & 0b1111
+                 if channel != 0xe:
+                     return
+-                (clientaddr, clientlun) = struct.unpack('BB', data[17:19])
++                (clientaddr, clientlun) = struct.unpack(
++                    'BB', bytes(data[17:19]))
++                clientseq = clientlun >> 2
++                clientlun &= 0b11  # Lun is only the least significant bits
+                 level &= 0b1111
+                 self.send_auth_cap(myaddr, mylun, clientaddr, clientlun,
+-                                   sockaddr)
++                                   clientseq, sockaddr)
+ 
+     def set_kg(self, kg):
+         """Sets the Kg for the BMC to use
+diff --git a/pyghmi/ipmi/private/session.py b/pyghmi/ipmi/private/session.py
+index 4a0f423..e9d3e5a 100644
+--- a/pyghmi/ipmi/private/session.py
++++ b/pyghmi/ipmi/private/session.py
+@@ -42,31 +42,37 @@ except AttributeError:
+     def dictitems(d):
+         return d.items()
+ 
+-
+-initialtimeout = 0.5  # minimum timeout for first packet to retry in any given
+-                     # session.  This will be randomized to stagger out retries
+-                     # in case of congestion
+-iothread = None  # the thread in which all IO will be performed
+-                 # While the model as-is works fine for it's own coroutine
+-                 # structure, when combined with threading or something like
+-                 # eventlet, it becomes difficult for the calling code to cope
+-                 # This thread will tuck away the threading situation such that
+-                 # calling code doesn't have to do any gymnastics to cope with
+-                 # the nature of things.
+-iothreadready = False  # whether io thread is yet ready to work
+-iothreadwaiters = []  # threads waiting for iothreadready
++# minimum timeout for first packet to retry in any given
++# session.  This will be randomized to stagger out retries
++# in case of congestion
++initialtimeout = 0.5
++# the thread in which all IO will be performed
++# While the model as-is works fine for it's own coroutine
++# structure, when combined with threading or something like
++# eventlet, it becomes difficult for the calling code to cope
++# This thread will tuck away the threading situation such that
++# calling code doesn't have to do any gymnastics to cope with
++# the nature of things.
++iothread = None
++# whether io thread is yet ready to work
++iothreadready = False
++# threads waiting for iothreadready
++iothreadwaiters = []
+ ioqueue = collections.deque([])
+ myself = None
+ ipv6support = None
+ selectdeadline = 0
+ running = True
+-iosockets = []  # set of iosockets that will be shared amongst Session objects
+-MAX_BMCS_PER_SOCKET = 64  # no more than this many BMCs will share a socket
+-                         # this could be adjusted based on rmem_max
+-                         # value, leading to fewer filehandles
++# set of iosockets that will be shared amongst Session objects
++iosockets = []
++# no more than this many BMCs will share a socket
++# this could be adjusted based on rmem_max
++# value, leading to fewer filehandles
++MAX_BMCS_PER_SOCKET = 64
+ 
+-MAX_IDLE = 29  # maximum time to allow idle, more than this and BMC may assume
+-               # incorrect idle
++# maximum time to allow idle, more than this and BMC may assume
++MAX_IDLE = 29
++# incorrect idle
+ 
+ 
+ def define_worker():
+@@ -134,6 +140,7 @@ def define_worker():
+                                 directediowaiters[workitem[2]].append(workitem)
+                             else:
+                                 directediowaiters[workitem[2]] = [workitem]
++
+     return _IOWorker
+ 
+ 
+@@ -160,7 +167,7 @@ def _io_wait(timeout, myaddr=None, evq=None):
+ 
+ 
+ def _io_sendto(mysocket, packet, sockaddr):
+-    #Want sendto to act reasonably sane..
++    # Want sendto to act reasonably sane..
+     mysocket.setblocking(1)
+     if hasattr(mysocket, 'fd'):
+         mysocket = mysocket.fd
+@@ -235,7 +242,7 @@ def _aespad(data):
+     currlen = len(data) + 1  # need to count the pad length field as well
+     neededpad = currlen % 16
+     if neededpad:  # if it happens to be zero, hurray, but otherwise invert the
+-                  # sense of the padding
++        # sense of the padding
+         neededpad = 16 - neededpad
+     padval = 1
+     while padval <= neededpad:
+@@ -279,16 +286,16 @@ class Session(object):
+     keepalive_sessions = {}
+     peeraddr_to_nodes = {}
+     iterwaiters = []
+-    #NOTE(jbjohnso):
+-    #socketpool is a mapping of sockets to usage count
++    # NOTE(jbjohnso):
++    # socketpool is a mapping of sockets to usage count
+     socketpool = {}
+-    #this will be a lock.  Delay the assignment so that a calling framework
+-    #can do something like reassign our threading and select modules
++    # this will be a lock.  Delay the assignment so that a calling framework
++    # can do something like reassign our threading and select modules
+     socketchecking = None
+ 
+     @classmethod
+     def _cleanup(cls):
+-        for sesskey in cls.bmc_handlers:
++        for sesskey in list(cls.bmc_handlers):
+             session = cls.bmc_handlers[sesskey]
+             session.cleaningup = True
+             session.logout()
+@@ -368,8 +375,18 @@ class Session(object):
+         """Handle synchronous callers in liue of
+         a client-provided callback.
+         """
+-        if 'error' in response:
+-            raise exc.IpmiException(response['error'])
++        # Be a stub, the __init__ will catch and respond to ensure response
++        # is given in the same thread as was called
++        return
++
++    @classmethod
++    def _is_session_valid(cls, session):
++        sess = cls.keepalive_sessions.get(session, None)
++        if sess is not None and 'timeout' in sess:
++            if sess['timeout'] < _monotonic_time():
++                # session would have timed out by now, don't use it
++                return False
++        return True
+ 
+     def __new__(cls,
+                 bmc,
+@@ -389,7 +406,8 @@ class Session(object):
+                 self = cls.bmc_handlers[sockaddr]
+                 if (self.bmc == bmc and self.userid == userid and
+                         self.password == password and self.kgo == kg and
+-                        (self.logged or self.logging)):
++                        (self.logged or self.logging) and
++                        cls._is_session_valid(self)):
+                     trueself = self
+                 else:
+                     del cls.bmc_handlers[sockaddr]
+@@ -415,6 +433,7 @@ class Session(object):
+                 else:
+                     self.iterwaiters.append(onlogon)
+             return
++        self.broken = False
+         self.privlevel = 4
+         self.maxtimeout = 3  # be aggressive about giving up on initial packet
+         self.incommand = False
+@@ -424,8 +443,8 @@ class Session(object):
+         self.cleaningup = False
+         self.lastpayload = None
+         self._customkeepalives = None
+-        self.evq = collections.deque([])  # queue of events denoting line to
+-                                          # run a cmd
++        # queue of events denoting line to run a cmd
++        self.evq = collections.deque([])
+         self.bmc = bmc
+         self.broken = False
+         # a private queue for packets for which this session handler
+@@ -465,23 +484,26 @@ class Session(object):
+         if not self.async:
+             while self.logging:
+                 Session.wait_for_rsp()
++        if self.broken:
++            raise exc.IpmiException(self.errormsg)
+ 
+-    def _mark_broken(self):
++    def _mark_broken(self, error=None):
+         # since our connection has failed retries
+         # deregister our keepalive facility
+         Session.keepalive_sessions.pop(self, None)
+         Session.waiting_sessions.pop(self, None)
+         self.logging = False
++        self.errormsg = error
+         if self.logged:
+             self.logged = 0  # mark session as busted
+             self.logging = False
+             if self._customkeepalives:
+                 for ka in list(self._customkeepalives):
+-                # Be thorough and notify parties through their custom
+-                # keepalives.  In practice, this *should* be the same, but
+-                # if a code somehow makes duplicate SOL handlers,
+-                # this would notify all the handlers rather than just the
+-                # last one to take ownership
++                    # Be thorough and notify parties through their custom
++                    # keepalives.  In practice, this *should* be the same, but
++                    # if a code somehow makes duplicate SOL handlers,
++                    # this would notify all the handlers rather than just the
++                    # last one to take ownership
+                     self._customkeepalives[ka][1](
+                         {'error': 'Session Disconnected'})
+             self._customkeepalives = None
+@@ -500,7 +522,7 @@ class Session(object):
+ 
+     def onlogon(self, parameter):
+         if 'error' in parameter:
+-            self._mark_broken()
++            self._mark_broken(parameter['error'])
+         while self.logonwaiters:
+             waiter = self.logonwaiters.pop()
+             waiter(parameter)
+@@ -553,10 +575,10 @@ class Session(object):
+         head = [constants.IPMI_BMC_ADDRESS,
+                 constants.netfn_codes['application'] << 2]
+         check_sum = _checksum(*head)
+-        #NOTE(fengqian): according IPMI Figure 14-11, rqSWID is set to 81h
++        # NOTE(fengqian): according IPMI Figure 14-11, rqSWID is set to 81h
+         boday = [0x81, self.seqlun, constants.IPMI_SEND_MESSAGE_CMD,
+                  0x40 | channel]
+-        #NOTE(fengqian): Track request
++        # NOTE(fengqian): Track request
+         self._add_request_entry((constants.netfn_codes['application'] + 1,
+                                  self.seqlun, constants.IPMI_SEND_MESSAGE_CMD))
+         return head + [check_sum] + boday
+@@ -582,17 +604,17 @@ class Session(object):
+         """
+         bridge_msg = []
+         self.expectedcmd = command
+-        self.expectednetfn = netfn + \
+-            1  # in ipmi, the response netfn is always one
+-                                   # higher than the request payload, we assume
+-                                   # we are always the requestor for now
++        # in ipmi, the response netfn is always one
++        self.expectednetfn = netfn + 1
++        # higher than the request payload, we assume
++        # we are always the requestor for now
+         seqincrement = 7  # IPMI spec forbids gaps bigger then 7 in seq number.
+-                       # Risk the taboo rather than violate the rules
++        # Risk the taboo rather than violate the rules
+         while (not self.servermode and
+                 (netfn, command, self.seqlun) in self.tabooseq and
+                self.tabooseq[(netfn, command, self.seqlun)] and seqincrement):
+             self.tabooseq[(self.expectednetfn, command, self.seqlun)] -= 1
+-                     # Allow taboo to eventually expire after a few rounds
++            # Allow taboo to eventually expire after a few rounds
+             self.seqlun += 4  # the last two bits are lun, so add 4 to add 1
+             self.seqlun &= 0xff  # we only have one byte, wrap when exceeded
+             seqincrement -= 1
+@@ -601,7 +623,7 @@ class Session(object):
+             addr = bridge_request.get('addr', 0x0)
+             channel = bridge_request.get('channel', 0x0)
+             bridge_msg = self._make_bridge_request_msg(channel, netfn, command)
+-            #NOTE(fengqian): For bridge request, rsaddr is specified and
++            # NOTE(fengqian): For bridge request, rsaddr is specified and
+             # rqaddr is BMC address.
+             rqaddr = constants.IPMI_BMC_ADDRESS
+             rsaddr = addr
+@@ -610,7 +632,7 @@ class Session(object):
+             rsaddr = constants.IPMI_BMC_ADDRESS
+         if self.servermode:
+             rsaddr = self.clientaddr
+-        #figure 13-4, first two bytes are rsaddr and
++        # figure 13-4, first two bytes are rsaddr and
+         # netfn, for non-bridge request, rsaddr is always 0x20 since we are
+         # addressing BMC while rsaddr is specified forbridge request
+         header = [rsaddr, netfn << 2]
+@@ -621,7 +643,7 @@ class Session(object):
+         payload = header + [headsum] + reqbody + [bodysum]
+         if bridge_request:
+             payload = bridge_msg + payload
+-            #NOTE(fengqian): For bridge request, another check sum is needed.
++            # NOTE(fengqian): For bridge request, another check sum is needed.
+             tail_csum = _checksum(*payload[3:])
+             payload.append(tail_csum)
+ 
+@@ -699,12 +721,12 @@ class Session(object):
+             timeout = None
+         else:  # if not retry, give it a second before surrending
+             timeout = 1
+-        #The event loop is shared amongst pyghmi session instances
+-        #within a process.  In this way, synchronous usage of the interface
+-        #plays well with asynchronous use.  In fact, this produces the behavior
+-        #of only the constructor needing a callback.  From then on,
+-        #synchronous usage of the class acts in a greenthread style governed by
+-        #order of data on the network
++        # The event loop is shared amongst pyghmi session instances
++        # within a process.  In this way, synchronous usage of the interface
++        # plays well with asynchronous use.  In fact, this produces the
++        # behavior of only the constructor needing a callback.  From then on,
++        # synchronous usage of the class acts in a greenthread style governed
++        # by order of data on the network
+         self.awaitresponse(retry, waitall)
+         lastresponse = self.lastresponse
+         self.incommand = False
+@@ -744,12 +766,12 @@ class Session(object):
+         :param timeout: Specify a custom timeout for long-running request
+         """
+         if payload and self.lastpayload:
+-                             # we already have a packet outgoing, make this
+-                             # a pending payload
+-                             # this way a simplistic BMC won't get confused
+-                             # and we also avoid having to do more complicated
+-                             # retry mechanism where each payload is
+-                             # retried separately
++            # we already have a packet outgoing, make this
++            # a pending payload
++            # this way a simplistic BMC won't get confused
++            # and we also avoid having to do more complicated
++            # retry mechanism where each payload is
++            # retried separately
+             self.pendingpayloads.append((payload, payload_type, retry))
+             return
+         if payload_type is None:
+@@ -769,7 +791,7 @@ class Session(object):
+         if self.ipmiversion == 2.0:
+             message.append(payload_type)
+             if baretype == 2:
+-                #TODO(jbjohnso): OEM payload types
++                # TODO(jbjohnso): OEM payload types
+                 raise NotImplementedError("OEM Payloads")
+             elif baretype not in constants.payload_types.values():
+                 raise NotImplementedError(
+@@ -782,23 +804,22 @@ class Session(object):
+                 message += self._ipmi15authcode(payload)
+             message.append(len(payload))
+             message += payload
+-            totlen = 34 + \
+-                len(message)  # Guessing the ipmi spec means the whole
+-                                   # packet and assume no tag in old 1.5 world
++            # Guessing the ipmi spec means the whole
++            totlen = 34 + len(message)
++            # packet and assume no tag in old 1.5 world
+             if totlen in (56, 84, 112, 128, 156):
+                 message.append(0)  # Legacy pad as mandated by ipmi spec
+         elif self.ipmiversion == 2.0:
+             psize = len(payload)
+             if self.confalgo:
+-                pad = (
+-                    psize + 1) % 16  # pad has to cope with one byte field like
+-                                   # the _aespad function
++                pad = (psize + 1) % 16  # pad has to cope with one byte
++                # field like the _aespad function
+                 if pad:  # if no pad needed, then we take no more action
+                     pad = 16 - pad
+-                newpsize = psize + pad + \
+-                    17  # new payload size grew according to pad
+-                                      # size, plus pad length, plus 16 byte IV
+-                                      #(Table 13-20)
++                # new payload size grew according to pad
++                newpsize = psize + pad + 17
++                # size, plus pad length, plus 16 byte IV
++                # (Table 13-20)
+                 message.append(newpsize & 0xff)
+                 message.append(newpsize >> 8)
+                 iv = os.urandom(16)
+@@ -815,26 +836,26 @@ class Session(object):
+                 message.append(psize >> 8)
+                 message += list(payload)
+             if self.integrityalgo:  # see table 13-8,
+-                                   # RMCP+ packet format
+-                                   # TODO(jbjohnso): SHA256 which is now
+-                                   # allowed
++                # RMCP+ packet format
++                # TODO(jbjohnso): SHA256 which is now
++                # allowed
+                 neededpad = (len(message) - 2) % 4
+                 if neededpad:
+                     neededpad = 4 - neededpad
+                 message += [0xff] * neededpad
+                 message.append(neededpad)
+                 message.append(7)  # reserved, 7 is the required value for the
+-                                  # specification followed
++                # specification followed
+                 integdata = message[4:]
+                 authcode = hmac.new(self.k1,
+                                     struct.pack("%dB" % len(integdata),
+                                                 *integdata),
+                                     hashlib.sha1).digest()[:12]  # SHA1-96
+-                                    # per RFC2404 truncates to 96 bits
++                # per RFC2404 truncates to 96 bits
+                 message += struct.unpack("12B", authcode)
+         self.netpacket = struct.pack("!%dB" % len(message), *message)
+-        #advance idle timer since we don't need keepalive while sending packets
+-        #out naturally
++        # advance idle timer since we don't need keepalive while sending
++        # packets out naturally
+         if (self in Session.keepalive_sessions and not needskeepalive and
+                 not self._customkeepalives):
+             Session.keepalive_sessions[self]['timeout'] = _monotonic_time() + \
+@@ -842,10 +863,11 @@ class Session(object):
+         self._xmit_packet(retry, delay_xmit=delay_xmit, timeout=timeout)
+ 
+     def _ipmi15authcode(self, payload, checkremotecode=False):
+-        #checkremotecode is used to verify remote code,
+-        #otherwise this function is used to general authcode for local
+-        if self.authtype == 0:  # Only for things before auth in ipmi 1.5, not
+-                                # like 2.0 cipher suite 0
++        # checkremotecode is used to verify remote code,
++        # otherwise this function is used to general authcode for local
++        if self.authtype == 0:
++            # Only for things before auth in ipmi 1.5, not
++            # like 2.0 cipher suite 0
+             return ()
+         password = self.password
+         padneeded = 16 - len(password)
+@@ -905,13 +927,14 @@ class Session(object):
+         self.sessionid = struct.unpack("<I", struct.pack("4B", *data[0:4]))[0]
+         self.authtype = 2
+         self._activate_session(data[4:])
++
+     # NOTE(jbjohnso):
+     # This sends the activate session payload.  We pick '1' as the requested
+     # sequence number without perturbing our real sequence number
+ 
+     def _activate_session(self, data):
+         rqdata = [2, 4] + list(data) + [1, 0, 0, 0]
+-                 # TODO(jbjohnso): this always requests admin level (1.5)
++        # TODO(jbjohnso): this always requests admin level (1.5)
+         self.ipmicallback = self._activated_session
+         self._send_ipmi_net_payload(netfn=0x6, command=0x3a, data=rqdata)
+ 
+@@ -966,8 +989,9 @@ class Session(object):
+ 
+     def _open_rmcpplus_request(self):
+         self.authtype = 6
+-        self.localsid += 1  # have unique local session ids to ignore aborted
+-                            # login attempts from the past
++        # have unique local session ids to ignore aborted
++        # login attempts from the past
++        self.localsid += 1
+         self.rmcptag += 1
+         data = [
+             self.rmcptag,
+@@ -979,7 +1003,7 @@ class Session(object):
+             0, 0, 0, 8, 1, 0, 0, 0,  # table 13-17, SHA-1
+             1, 0, 0, 8, 1, 0, 0, 0,  # SHA-1 integrity
+             2, 0, 0, 8, 1, 0, 0, 0,  # AES privacy
+-            #2,0,0,8,0,0,0,0, #no privacy confalgo
++            # 2,0,0,8,0,0,0,0, #no privacy confalgo
+         ]
+         self.sessioncontext = 'OPENSESSION'
+         self.send_payload(
+@@ -1020,12 +1044,12 @@ class Session(object):
+                         unspecified, will autodetect based on earliest timeout
+         """
+         global iosockets
+-        #Assume:
+-        #Instance A sends request to packet B
+-        #Then Instance C sends request to BMC D
+-        #BMC D was faster, so data comes back before BMC B
+-        #Instance C gets to go ahead of Instance A, because
+-        #Instance C can get work done, but instance A cannot
++        # Assume:
++        # Instance A sends request to packet B
++        # Then Instance C sends request to BMC D
++        # BMC D was faster, so data comes back before BMC B
++        # Instance C gets to go ahead of Instance A, because
++        # Instance C can get work done, but instance A cannot
+ 
+         curtime = _monotonic_time()
+         # There ar a number of parties that each has their own timeout
+@@ -1083,12 +1107,11 @@ class Session(object):
+             session._keepalive()
+         for session, parms in dictitems(cls.waiting_sessions):
+             if parms['timeout'] < curtime:  # timeout has expired, time to
+-                                            # give up on it and trigger timeout
+-                                            # response in the respective
+-                                            # session
+-                sessionstodel.append(
+-                    session)  # defer deletion until after loop
+-                                              # to avoid confusing the for loop
++                # give up on it and trigger timeout
++                # response in the respective session
++                # defer deletion until after loop
++                sessionstodel.append(session)
++                # to avoid confusing the for loop
+         for session in sessionstodel:
+             cls.waiting_sessions.pop(session, None)
+         # one loop iteration to make sure recursion doesn't induce redundant
+@@ -1098,7 +1121,7 @@ class Session(object):
+         return len(cls.waiting_sessions)
+ 
+     def register_keepalive(self, cmd, callback):
+-        '''Register  custom keepalive IPMI command
++        """Register  custom keepalive IPMI command
+ 
+         This is mostly intended for use by the console code.
+         calling code would have an easier time just scheduling in their
+@@ -1109,7 +1132,7 @@ class Session(object):
+         :param callback: A function to be called with results of the keepalive
+ 
+         :returns: value to identify registration for unregister_keepalive
+-        '''
++        """
+         regid = random.random()
+         if self._customkeepalives is None:
+             self._customkeepalives = {regid: (cmd, callback)}
+@@ -1183,8 +1206,8 @@ class Session(object):
+               sockaddr is not None and
+               self.sockaddr != sockaddr):
+             return  # here, we might have sent an ipv4 and ipv6 packet to kick
+-                   # things off ignore the second reply since we have one
+-                   # satisfactory answer
++            # things off ignore the second reply since we have one
++            # satisfactory answer
+         if data[4] in (0, 2):  # This is an ipmi 1.5 paylod
+             remsequencenumber = struct.unpack('<I', bytes(data[5:9]))[0]
+             remsessid = struct.unpack("<I", bytes(data[9:13]))[0]
+@@ -1203,9 +1226,10 @@ class Session(object):
+                 return -5  # remote sequence number is too low, reject it
+             self.remsequencenumber = remsequencenumber
+             if data[4] != self.authtype:
+-                return -2  # BMC responded with mismatch authtype, for
+-                          # mutual authentication reject it. If this causes
+-                          # legitimate issues, it's the vendor's fault
++                # BMC responded with mismatch authtype, for
++                # mutual authentication reject it. If this causes
++                # legitimate issues, it's the vendor's fault
++                return -2
+ 
+             if remsessid != self.sessionid:
+                 return -1  # does not match our session id, drop it
+@@ -1216,7 +1240,7 @@ class Session(object):
+             if data[4] == 2:  # we have authcode in this ipmi 1.5 packet
+                 authcode = data[13:29]
+                 del rsp[13:29]
+-                    # this is why we needed a mutable representation
++                # this is why we needed a mutable representation
+             payload = list(rsp[14:14 + rsp[13]])
+             if authcode:
+                 expectedauthcode = self._ipmi15authcode(payload,
+@@ -1236,7 +1260,7 @@ class Session(object):
+         pass
+ 
+     def _got_rakp3(self, data):
+-        #stub, client sessions ignore rakp3
++        # stub, client sessions ignore rakp3
+         pass
+ 
+     def _got_rmcp_openrequest(self, data):
+@@ -1262,8 +1286,8 @@ class Session(object):
+             # If endorsing a shared secret scheme, then at the very least it
+             # needs to do mutual assurance
+             if not (data[5] & 0b01000000):  # This would be the line that might
+-                                         # trip up some insecure BMC
+-                                         # implementation
++                # trip up some insecure BMC
++                # implementation
+                 return
+             encrypted = 0
+             if data[5] & 0b10000000:
+@@ -1363,9 +1387,10 @@ class Session(object):
+ 
+     def _got_rakp2(self, data):
+         if not (self.sessioncontext in ('EXPECTINGRAKP2', 'EXPECTINGRAKP4')):
+-            return -9  # if we are not expecting rakp2, ignore. In a retry
+-                      # scenario, replying from stale RAKP2 after sending
+-                      # RAKP3 seems to be best
++            # if we are not expecting rakp2, ignore. In a retry
++            # scenario, replying from stale RAKP2 after sending
++            # RAKP3 seems to be best
++            return -9
+         if data[0] != self.rmcptag:  # ignore mismatched tags for retry logic
+             return -9
+         if data[1] != 0:  # if not successful, consider next move
+@@ -1375,8 +1400,9 @@ class Session(object):
+                 self.privlevel = 3
+                 self.login()
+                 return
+-            if data[1] == 2:  # invalid sessionid 99% of the time means a retry
+-                             # scenario invalidated an in-flight transaction
++            # invalid sessionid 99% of the time means a retry
++            # scenario invalidated an in-flight transaction
++            if data[1] == 2:
+                 return
+             if data[1] in constants.rmcp_codes:
+                 errstr = constants.rmcp_codes[data[1]]
+@@ -1441,12 +1467,13 @@ class Session(object):
+             return -9
+         if data[1] != 0:
+             if data[1] == 2 and self.logontries:  # if we retried RAKP3 because
+-               # RAKP4 got dropped, BMC can consider it done and we must
+-               # restart
++                # RAKP4 got dropped, BMC can consider it done and we must
++                # restart
+                 self._relog()
+-            if data[1] == 15 and self.logontries:  # ignore 15 value if we are
+-                    # retrying.  xCAT did but I can't recall why exactly
+-                    # TODO(jbjohnso) jog my memory to update the comment
++            # ignore 15 value if we are retrying.
++            # xCAT did but I can't recall why exactly
++            if data[1] == 15 and self.logontries:
++                # TODO(jbjohnso) jog my memory to update the comment
+                 return
+             if data[1] in constants.rmcp_codes:
+                 errstr = constants.rmcp_codes[data[1]]
+@@ -1491,18 +1518,18 @@ class Session(object):
+         if self._lookup_request_entry(entry):
+             self._remove_request_entry(entry)
+ 
+-            #NOTE(fengqian): for bridge request, we need to handle the response
+-            #twice. First response shows if message send correctly, second
+-            #response is the real response.
+-            #If the message is send crrectly, we will discard the first
+-            #response or else error message will be parsed and return.
+-            if ((entry[0] in [0x06, 0x07]) and (entry[2] == 0x34)
+-               and (payload[-2] == 0x0)):
++            # NOTE(fengqian): for bridge request, we need to handle the
++            # response twice. First response shows if message send correctly,
++            # second response is the real response.
++            # If the message is send crrectly, we will discard the first
++            # response or else error message will be parsed and return.
++            if ((entry[0] in [0x06, 0x07]) and (entry[2] == 0x34) and
++                    (payload[-2] == 0x0)):
+                 return -1
+             else:
+                 self._parse_payload(payload)
+-                #NOTE(fengqian): recheck if the certain entry is removed in
+-                #case that bridge request failed.
++                # NOTE(fengqian): recheck if the certain entry is removed in
++                # case that bridge request failed.
+                 if self.request_entry:
+                     self._remove_request_entry((self.expectednetfn,
+                                                 self.seqlun, self.expectedcmd))
+@@ -1514,25 +1541,28 @@ class Session(object):
+     def _parse_payload(self, payload):
+         if hasattr(self, 'hasretried') and self.hasretried:
+             self.hasretried = 0
++            # try to skip it for at most 16 cycles of overflow
+             self.tabooseq[
+                 (self.expectednetfn, self.expectedcmd, self.seqlun)] = 16
+-             # try to skip it for at most 16 cycles of overflow
+         # We want to now remember that we do not have an expected packet
+-        self.expectednetfn = 0x1ff  # bigger than one byte means it can never
+-                                    # match the one byte value by mistake
++        # bigger than one byte means it can never match the one byte value
++        # by mistake
++        self.expectednetfn = 0x1ff
+         self.expectedcmd = 0x1ff
+         if not self.servermode:
+             self.seqlun += 4  # prepare seqlun for next transmit
+             self.seqlun &= 0xff  # when overflowing, wrap around
+         Session.waiting_sessions.pop(self, None)
+-        self.lastpayload = None  # render retry mechanism utterly incapable of
+-                                 # doing anything, though it shouldn't matter
++        # render retry mechanism utterly incapable of
++        # doing anything, though it shouldn't matter
++        self.lastpayload = None
+         self.last_payload_type = None
+         response = {}
+         response['netfn'] = payload[1] >> 2
+-        del payload[0:5]
+         # ^^ remove header of rsaddr/netfn/lun/checksum/rq/seq/lun
+-        del payload[-1]  # remove the trailing checksum
++        del payload[0:5]
++        # remove the trailing checksum
++        del payload[-1]
+         response['command'] = payload[0]
+         if self.servermode:
+             del payload[0:1]
+@@ -1578,21 +1608,21 @@ class Session(object):
+             self.lastpayload = None
+             self._relog()
+         else:  # in IPMI case, the only recourse is to act as if the packet is
+-              # idempotent.  SOL has more sophisticated retry handling
+-             # the biggest risks are reset sp which is often fruitless to retry
+-             # and chassis reset, which sometimes will shoot itself
+-             # systematically in the head in a shared port case making replies
+-             # impossible
++            # idempotent.  SOL has more sophisticated retry handling
++            # the biggest risks are reset sp which is often fruitless to retry
++            # and chassis reset, which sometimes will shoot itself
++            # systematically in the head in a shared port case making replies
++            # impossible
+             self.hasretried = 1  # remember so that we can track taboo
+-                              # combinations
+-                              # of sequence number, netfn, and lun due to
+-                              # ambiguity on the wire
++            # combinations
++            # of sequence number, netfn, and lun due to
++            # ambiguity on the wire
+             self.send_payload()
+         self.nowait = False
+ 
+     def _xmit_packet(self, retry=True, delay_xmit=None, timeout=None):
+         if self.sequencenumber:  # seq number of zero will be left alone, it is
+-                                # special, otherwise increment
++            # special, otherwise increment
+             self.sequencenumber += 1
+         if delay_xmit is not None:
+             Session.waiting_sessions[self] = {}
+@@ -1602,8 +1632,9 @@ class Session(object):
+             return  # skip transmit, let retry timer do it's thing
+         if self.sockaddr:
+             _io_sendto(self.socket, self.netpacket, self.sockaddr)
+-        else:  # he have not yet picked a working sockaddr for this connection,
+-              # try all the candidates that getaddrinfo provides
++        else:
++            # he have not yet picked a working sockaddr for this connection,
++            # try all the candidates that getaddrinfo provides
+             self.allsockaddrs = []
+             try:
+                 for res in socket.getaddrinfo(self.bmc,
+@@ -1652,6 +1683,7 @@ class Session(object):
+ 
+ if __name__ == "__main__":
+     import sys
++
+     ipmis = Session(bmc=sys.argv[1],
+                     userid=sys.argv[2],
+                     password=os.environ['IPMIPASS'])
+diff --git a/pyghmi/ipmi/private/spd.py b/pyghmi/ipmi/private/spd.py
+index 2c1ef1d..4450ef3 100644
+--- a/pyghmi/ipmi/private/spd.py
++++ b/pyghmi/ipmi/private/spd.py
+@@ -28,7 +28,6 @@
+ # possible to derive in a formulaic way
+ 
+ import struct
+-import math
+ 
+ jedec_ids = [
+     {
+@@ -678,16 +677,9 @@ ddr3_bus_width = {
+     3: 64,
+ }
+ 
+-speed_by_clock = {
+-    800: 6400,
+-    1066: 8500,
+-    1333: 10600,
+-    1600: 12800,
+-    1867: 14900,
+-    2132: 17000,
+-    2133: 17000,
+-    2134: 17000,
+-}
++
++def speed_from_clock(clock):
++    return int(clock * 8 - (clock * 8 % 100))
+ 
+ 
+ def decode_manufacturer(index, mfg):
+@@ -731,8 +723,8 @@ class SPD(object):
+             fineoffset = 0 - ((fineoffset ^ 0xff) + 1)
+         fineoffset = (finetime * fineoffset) * 10**-3
+         mtb = spd[10] / float(spd[11])
+-        clock = math.floor(2 / ((mtb * spd[12] + fineoffset)*10**-3))
+-        self.info['speed'] = speed_by_clock.get(clock, 'Unknown')
++        clock = 2 // ((mtb * spd[12] + fineoffset)*10**-3)
++        self.info['speed'] = speed_from_clock(clock)
+         self.info['ecc'] = (spd[8] & 0b11000) != 0
+         self.info['module_type'] = module_types.get(spd[3] & 0xf, 'Unknown')
+         sdramcap = ddr3_module_capacity[spd[4] & 0xf]
+@@ -753,8 +745,8 @@ class SPD(object):
+             fineoffset = spd[125]
+             if fineoffset & 0b10000000:
+                 fineoffset = 0 - ((fineoffset ^ 0xff) + 1)
+-            clock = math.floor(2 / ((0.125 * spd[18] + fineoffset * 0.001) * 0.001))
+-            self.info['speed'] = speed_by_clock.get(clock, 'Unknown')
++            clock = 2 // ((0.125 * spd[18] + fineoffset * 0.001) * 0.001)
++            self.info['speed'] = speed_from_clock(clock)
+         else:
+             self.info['speed'] = 'Unknown'
+         self.info['ecc'] = (spd[13] & 0b11000) == 0b1000
+diff --git a/pyghmi/ipmi/private/util.py b/pyghmi/ipmi/private/util.py
+index c1d1e4e..9d45701 100755
+--- a/pyghmi/ipmi/private/util.py
++++ b/pyghmi/ipmi/private/util.py
+@@ -87,8 +87,8 @@ def get_ipmi_error(response, suffix=""):
+         return False
+     command = response['command']
+     netfn = response['netfn']
+-    if ((netfn, command) in constants.command_completion_codes
+-            and code in constants.command_completion_codes[(netfn, command)]):
++    if ((netfn, command) in constants.command_completion_codes and
++            code in constants.command_completion_codes[(netfn, command)]):
+         res = constants.command_completion_codes[(netfn, command)][code]
+         res += suffix
+     elif code in constants.ipmi_completion_codes:
+diff --git a/pyghmi/ipmi/sdr.py b/pyghmi/ipmi/sdr.py
+index 783e0ba..5438de7 100755
+--- a/pyghmi/ipmi/sdr.py
++++ b/pyghmi/ipmi/sdr.py
+@@ -46,8 +46,8 @@ def ones_complement(value, bits):
+     # complement prevalent in ipmi spec
+     signbit = 0b1 << (bits - 1)
+     if value & signbit:
+-        #if negative, subtract 1, then take 1s
+-        #complement given bits width
++        # if negative, subtract 1, then take 1s
++        # complement given bits width
+         return 0 - (value ^ ((0b1 << bits) - 1))
+     else:
+         return value
+@@ -58,8 +58,8 @@ def twos_complement(value, bits):
+     # complement prevalent in ipmi spec
+     signbit = 0b1 << (bits - 1)
+     if value & signbit:
+-        #if negative, subtract 1, then take 1s
+-        #complement given bits width
++        # if negative, subtract 1, then take 1s
++        # complement given bits width
+         return 0 - ((value - 1) ^ ((0b1 << bits) - 1))
+     else:
+         return value
+@@ -261,7 +261,7 @@ class SDREntry(object):
+             raise NotImplementedError
+         self.rectype = entrybytes[3]
+         self.linearization = None
+-        #most important to get going are 1, 2, and 11
++        # most important to get going are 1, 2, and 11
+         self.sdrtype = TYPE_SENSOR  # assume a sensor
+         if self.rectype == 1:  # full sdr
+             self.full_decode(entrybytes[5:])
+@@ -312,7 +312,7 @@ class SDREntry(object):
+ 
+     def association_decode(self, entry):
+         # table 43-4 Entity Associaition Record
+-        #TODO(jbjohnso): actually represent this data
++        # TODO(jbjohnso): actually represent this data
+         self.sdrtype = TYPE_UNKNOWN
+ 
+     def compact_decode(self, entry):
+@@ -337,10 +337,10 @@ class SDREntry(object):
+         except KeyError:
+             self.sensor_type = "UNKNOWN type " + str(entry[7])
+         self.reading_type = entry[8]  # table 42-1
+-            # 0: unspecified
+-            # 1: generic threshold based
+-            # 0x6f: discrete sensor-specific from table 42-3, sensor offsets
+-            # all others per table 42-2, generic discrete
++        # 0: unspecified
++        # 1: generic threshold based
++        # 0x6f: discrete sensor-specific from table 42-3, sensor offsets
++        # all others per table 42-2, generic discrete
+         # numeric format is one of:
+         # 0 - unsigned, 1 - 1s complement, 2 - 2s complement, 3 - ignore number
+         # compact records are supposed to always write it as '3', presumably
+@@ -373,8 +373,8 @@ class SDREntry(object):
+             self.modunit
+ 
+     def full_decode(self, entry):
+-        #offsets are table from spec, minus 6
+-        #TODO(jbjohnso): table 43-13, put in constants to interpret entry[3]
++        # offsets are table from spec, minus 6
++        # TODO(jbjohnso): table 43-13, put in constants to interpret entry[3]
+         self._common_decode(entry)
+         # now must extract the formula data to transform values
+         # entry[18 to entry[24].
+@@ -552,7 +552,7 @@ class SDREntry(object):
+             (entry[4] & 0b11110000) << 2
+         self.accuracyexp = (entry[4] & 0b1100) >> 2
+         self.direction = entry[4] & 0b11
+-            #0 = n/a, 1 = input, 2 = output
++        # 0 = n/a, 1 = input, 2 = output
+         self.resultexponent = twos_complement((entry[5] & 0b11110000) >> 4, 4)
+         bexponent = twos_complement(entry[5] & 0b1111, 4)
+         # might as well do the math to 'b' now rather than wait for later
+@@ -603,7 +603,7 @@ class SDR(object):
+         self.read_info()
+ 
+     def read_info(self):
+-        #first, we want to know the device id
++        # first, we want to know the device id
+         rsp = self.ipmicmd.xraw_command(netfn=6, command=1)
+         rsp['data'] = bytearray(rsp['data'])
+         self.device_id = rsp['data'][0]
+@@ -627,9 +627,10 @@ class SDR(object):
+                 # be able to proceed
+                 # However at the moment, we haven't done so
+                 raise NotImplementedError
+-            return  # We have Device SDR, without SDR Repository device, but
+-                    # also without sensor device support, no idea how to
+-                    # continue
++            return
++            # We have Device SDR, without SDR Repository device, but
++            # also without sensor device support, no idea how to
++            # continue
+         self.get_sdr()
+ 
+     def get_sdr_reservation(self):
+@@ -645,14 +646,14 @@ class SDR(object):
+             # we only understand SDR version 51h, the only version defined
+             # at time of this writing
+             raise NotImplementedError
+-        #NOTE(jbjohnso): we actually don't need to care about 'numrecords'
++        # NOTE(jbjohnso): we actually don't need to care about 'numrecords'
+         # since FFFF marks the end explicitly
+-        #numrecords = (rsp['data'][2] << 8) + rsp['data'][1]
+-        #NOTE(jbjohnso): don't care about 'free space' at the moment
+-        #NOTE(jbjohnso): most recent timstamp data for add and erase could be
++        # numrecords = (rsp['data'][2] << 8) + rsp['data'][1]
++        # NOTE(jbjohnso): don't care about 'free space' at the moment
++        # NOTE(jbjohnso): most recent timstamp data for add and erase could be
+         # handy to detect cache staleness, but for now will assume invariant
+         # over life of session
+-        #NOTE(jbjohnso): not looking to support the various options in op
++        # NOTE(jbjohnso): not looking to support the various options in op
+         # support, ignore those for now, reservation if some BMCs can't read
+         # full SDR in one slurp
+         recid = 0
+diff --git a/pyghmi/util/webclient.py b/pyghmi/util/webclient.py
+index 3f45514..ce9bede 100644
+--- a/pyghmi/util/webclient.py
++++ b/pyghmi/util/webclient.py
+@@ -16,27 +16,75 @@
+ # sake of typical internal management devices.  Compatibility back to python
+ # 2.6 as is found in commonly used enterprise linux distributions.
+ 
+-__author__ = 'jjohnson2'
+-import httplib
++import json
+ import pyghmi.exceptions as pygexc
+ import socket
+ import ssl
+ 
++try:
++    import Cookie
++    import httplib
++except ImportError:
++    import http.client as httplib
++    import http.cookies as Cookie
++
++__author__ = 'jjohnson2'
++
+ 
+-class SecureHTTPConnection(httplib.HTTPConnection):
++class SecureHTTPConnection(httplib.HTTPConnection, object):
+     default_port = httplib.HTTPS_PORT
+ 
+     def __init__(self, host, port=None, key_file=None, cert_file=None,
+                  ca_certs=None, strict=None, verifycallback=None, **kwargs):
++        if 'timeout' not in kwargs:
++            kwargs['timeout'] = 60
+         httplib.HTTPConnection.__init__(self, host, port, strict, **kwargs)
+         self.cert_reqs = ssl.CERT_NONE  # verification will be done ssh style..
+         self._certverify = verifycallback
++        self.cookies = {}
++        self.stdheaders = {}
++
++    def set_header(self, key, value):
++        self.stdheaders[key] = value
+ 
+     def connect(self):
+-        plainsock = socket.create_connection((self.host, self.port))
++        plainsock = socket.create_connection((self.host, self.port), 60)
+         self.sock = ssl.wrap_socket(plainsock, cert_reqs=self.cert_reqs)
+         # txtcert = self.sock.getpeercert()  # currently not possible
+         bincert = self.sock.getpeercert(binary_form=True)
+         if not self._certverify(bincert):
+             raise pygexc.UnrecognizedCertificate('Unknown certificate',
+                                                  bincert)
++
++    def getresponse(self):
++        rsp = super(SecureHTTPConnection, self).getresponse()
++        for hdr in rsp.msg.headers:
++            if hdr.startswith('Set-Cookie:'):
++                c = Cookie.BaseCookie(hdr[11:])
++                for k in c:
++                    self.cookies[k] = c[k].value
++        return rsp
++
++    def grab_json_response(self, url, data=None):
++        if data:
++            self.request('POST', url, data)
++        else:
++            self.request('GET', url)
++        rsp = self.getresponse()
++        if rsp.status == 200:
++            return json.loads(rsp.read())
++        rsp.read()
++        return {}
++
++    def request(self, method, url, body=None, headers=None):
++        if headers is None:
++            headers = self.stdheaders.copy()
++        if method == 'GET' and 'Content-Type' in headers:
++            del headers['Content-Type']
++        if self.cookies:
++            cookies = []
++            for ckey in self.cookies:
++                cookies.append('{0}={1}'.format(ckey, self.cookies[ckey]))
++            headers['Cookie'] = '; '.join(cookies)
++        return super(SecureHTTPConnection, self).request(method, url, body,
++                                                         headers)
+diff --git a/setup.cfg b/setup.cfg
+index 8254178..e63df42 100644
+--- a/setup.cfg
++++ b/setup.cfg
+@@ -16,6 +16,11 @@ classifier =
+     Programming Language :: Python :: 2.7
+     Programming Language :: Python :: 2.6
+ 
++[build_sphinx]
++all_files = 1
++build-dir = doc/build
++source-dir = doc/source
++
+ [files]
+ packages =
+     pyghmi
+diff --git a/test-requirements.txt b/test-requirements.txt
+index 94adbad..b283619 100644
+--- a/test-requirements.txt
++++ b/test-requirements.txt
+@@ -8,3 +8,5 @@ sphinx>=1.1.2
+ testrepository>=0.0.17
+ testscenarios>=0.4
+ testtools>=0.9.32
++os-testr>=0.8.0 # Apache-2.0
++oslotest>=1.10.0 # Apache-2.0
+diff --git a/tox.ini b/tox.ini
+index 42ddf27..7da0dda 100644
+--- a/tox.ini
++++ b/tox.ini
+@@ -1,19 +1,18 @@
+ [tox]
+-envlist = py26,py27,py33,py34,pep8
++envlist = py35,py27,pep8
+ 
+ [testenv]
+ setenv = VIRTUAL_ENV={envdir}
+          LANG=en_US.UTF-8
+          LANGUAGE=en_US:en
+          LC_ALL=C
++         TESTS_DIR=./pyghmi/tests/unit/
+ deps = -r{toxinidir}/requirements.txt
+        -r{toxinidir}/test-requirements.txt
+-commands =
+-  python setup.py testr --slowest --testr-args='{posargs}'
++commands = ostestr {posargs}
+ 
+ [tox:jenkins]
+ sitepackages = True
+-downloadcache = ~/cache/pip
+ 
+ [testenv:pep8]
+ whitelist_externals = bash
+-- 
+2.6.3.windows.1
+

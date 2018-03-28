@@ -1,0 +1,1095 @@
+From 7ae13d73acc67f18f890796945e24fae281c5de9 Mon Sep 17 00:00:00 2001
+From: Michael Du <duxd2@LENOVO.COM>
+Date: Tue, 1 Aug 2017 19:07:54 +0800
+Subject: [PATCH] Merge the pyghmi with upstream
+
+---
+ buildrpm                            |   7 +
+ pyghmi/ipmi/oem/ibm/handler.py      |   2 +-
+ pyghmi/ipmi/oem/lenovo/handler.py   |  30 +--
+ pyghmi/ipmi/oem/lenovo/imm.py       | 482 ++++++++++++++++++++++++++++++++++++
+ pyghmi/ipmi/oem/lenovo/nextscale.py | 226 +++++++++++++++++
+ pyghmi/ipmi/private/localsession.py | 135 ++++++++++
+ pyghmi/tests/__init__.py            |   0
+ pyghmi/tests/unit/__init__.py       |   0
+ pyghmi/tests/unit/base.py           |  21 ++
+ pyghmi/tests/unit/ipmi/__init__.py  |   0
+ pyghmi/tests/unit/ipmi/test_sdr.py  |  23 ++
+ pyghmi/version.py                   |  18 ++
+ python-pyghmi.spec                  |  37 +++
+ 13 files changed, 965 insertions(+), 16 deletions(-)
+ create mode 100644 buildrpm
+ create mode 100644 pyghmi/ipmi/oem/lenovo/imm.py
+ create mode 100644 pyghmi/ipmi/oem/lenovo/nextscale.py
+ create mode 100644 pyghmi/ipmi/private/localsession.py
+ create mode 100644 pyghmi/tests/__init__.py
+ create mode 100644 pyghmi/tests/unit/__init__.py
+ create mode 100644 pyghmi/tests/unit/base.py
+ create mode 100644 pyghmi/tests/unit/ipmi/__init__.py
+ create mode 100644 pyghmi/tests/unit/ipmi/test_sdr.py
+ create mode 100644 pyghmi/version.py
+ create mode 100644 python-pyghmi.spec
+
+diff --git a/buildrpm b/buildrpm
+new file mode 100644
+index 0000000..6cc5cdb
+--- /dev/null
++++ b/buildrpm
+@@ -0,0 +1,7 @@
++cd `dirname $0`
++VERSION=`python setup.py --version`
++python setup.py sdist
++cp dist/pyghmi-$VERSION.tar.gz ~/rpmbuild/SOURCES
++rpmbuild -bs python-pyghmi.spec
++rm $1/python-pyghmi-*rpm
++cp ~/rpmbuild/SRPMS/python-pyghmi-$VERSION-1.src.rpm $1/
+diff --git a/pyghmi/ipmi/oem/ibm/handler.py b/pyghmi/ipmi/oem/ibm/handler.py
+index 5474515..a3bee4a 100755
+--- a/pyghmi/ipmi/oem/ibm/handler.py
++++ b/pyghmi/ipmi/oem/ibm/handler.py
+@@ -153,7 +153,7 @@ class OEMHandler(generic.OEMHandler):
+             fru['oem_parser'] = None
+             return fru
+ 
+-    def get_oem_firmware(self):
++    def get_oem_firmware(self, bmcver):
+         if self.has_imm:
+             fw_info = []
+             #add the firmware info in the SMBIOS table, can not cache it as FW might be upgraded
+diff --git a/pyghmi/ipmi/oem/lenovo/handler.py b/pyghmi/ipmi/oem/lenovo/handler.py
+index 9bd7890..36573ce 100755
+--- a/pyghmi/ipmi/oem/lenovo/handler.py
++++ b/pyghmi/ipmi/oem/lenovo/handler.py
+@@ -568,21 +568,21 @@ class OEMHandler(generic.OEMHandler):
+                 
+             led_set_status = asrock_led_status
+         
+-		if self.has_ami or self.has_asrock or self.has_tsm:
+-	        for (name, id_) in led_set.items():
+-	            try:
+-	                if self.has_asrock:
+-	                    rsp = self.ipmicmd.xraw_command(netfn=0x3A, command=cmd,
+-	                                                    data=(0x03, id_, 0x00))
+-	                    status = ord(rsp['data'][1])
+-	                else:
+-	                    rsp = self.ipmicmd.xraw_command(netfn=0x3A, command=cmd,
+-	                                                    data=(id_,))
+-	                    status = ord(rsp['data'][0])
+-	            except pygexc.IpmiException:
+-	                continue  # Ignore LEDs we can't retrieve
+-	            status = led_set_status.get(status, led_status_default)
+-	            yield (name, {'status': status})
++        if self.has_ami or self.has_asrock or self.has_tsm:
++            for (name, id_) in led_set.items():
++                try:
++                    if self.has_asrock:
++                        rsp = self.ipmicmd.xraw_command(netfn=0x3A, command=cmd,
++                                                        data=(0x03, id_, 0x00))
++                        status = ord(rsp['data'][1])
++                    else:
++                        rsp = self.ipmicmd.xraw_command(netfn=0x3A, command=cmd,
++                                                        data=(id_,))
++                        status = ord(rsp['data'][0])
++                except pygexc.IpmiException:
++                    continue  # Ignore LEDs we can't retrieve
++                status = led_set_status.get(status, led_status_default)
++                yield (name, {'status': status})
+ 
+     def set_identify(self, on, duration):
+         if on and not duration and self.is_sd350:
+diff --git a/pyghmi/ipmi/oem/lenovo/imm.py b/pyghmi/ipmi/oem/lenovo/imm.py
+new file mode 100644
+index 0000000..5cc54d0
+--- /dev/null
++++ b/pyghmi/ipmi/oem/lenovo/imm.py
+@@ -0,0 +1,482 @@
++# vim: tabstop=4 shiftwidth=4 softtabstop=4
++
++# Copyright 2016 Lenovo
++#
++# Licensed under the Apache License, Version 2.0 (the "License");
++# you may not use this file except in compliance with the License.
++# You may obtain a copy of the License at
++#
++#     http://www.apache.org/licenses/LICENSE-2.0
++#
++# Unless required by applicable law or agreed to in writing, software
++# distributed under the License is distributed on an "AS IS" BASIS,
++# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++# See the License for the specific language governing permissions and
++# limitations under the License.
++
++from datetime import datetime
++import json
++import pyghmi.ipmi.private.util as util
++import pyghmi.util.webclient as webclient
++import urllib
++import weakref
++
++
++class IMMClient(object):
++    logouturl = '/data/logout'
++    bmcname = 'IMM'
++
++    def __init__(self, ipmicmd):
++        self.ipmicmd = weakref.proxy(ipmicmd)
++        self.imm = ipmicmd.bmc
++        self.username = ipmicmd.ipmi_session.userid
++        self.password = ipmicmd.ipmi_session.password
++        self._wc = None  # The webclient shall be initiated on demand
++        self.datacache = {}
++
++    @staticmethod
++    def _parse_builddate(strval):
++        try:
++            return datetime.strptime(strval, '%Y/%m/%d %H:%M:%S')
++        except ValueError:
++            pass
++        try:
++            return datetime.strptime(strval, '%Y-%m-%d %H:%M:%S')
++        except ValueError:
++            pass
++        try:
++            return datetime.strptime(strval, '%Y/%m/%d')
++        except ValueError:
++            pass
++        try:
++            return datetime.strptime(strval, '%m/%d/%Y')
++        except ValueError:
++            pass
++        try:
++            return datetime.strptime(strval, '%Y-%m-%d')
++        except ValueError:
++            pass
++        try:
++            return datetime.strptime(strval, '%m %d %Y')
++        except ValueError:
++            pass
++        return None
++
++    @classmethod
++    def parse_imm_buildinfo(cls, buildinfo):
++        buildid = buildinfo[:9].rstrip(' \x00')
++        bdt = ' '.join(buildinfo[9:].replace('\x00', ' ').split())
++        bdate = cls._parse_builddate(bdt)
++        return buildid, bdate
++
++    @classmethod
++    def datefromprop(cls, propstr):
++        if propstr is None:
++            return None
++        return cls._parse_builddate(propstr)
++
++    def get_property(self, propname):
++        propname = propname.encode('utf-8')
++        proplen = len(propname) | 0b10000000
++        cmdlen = len(propname) + 1
++        cdata = bytearray([0, 0, cmdlen, proplen]) + propname
++        rsp = self.ipmicmd.xraw_command(netfn=0x3a, command=0xc4, data=cdata)
++        rsp['data'] = bytearray(rsp['data'])
++        if rsp['data'][0] != 0:
++            return None
++        propdata = rsp['data'][3:]  # second two bytes are size, don't need it
++        if propdata[0] & 0b10000000:  # string, for now assume length valid
++            return str(propdata[1:]).rstrip(' \x00')
++        else:
++            raise Exception('Unknown format for property: ' + repr(propdata))
++
++    def get_webclient(self):
++        cv = self.ipmicmd.certverify
++        wc = webclient.SecureHTTPConnection(self.imm, 443, verifycallback=cv)
++        try:
++            wc.connect()
++        except Exception:
++            return None
++        adata = urllib.urlencode({'user': self.username,
++                                  'password': self.password,
++                                  'SessionTimeout': 60
++                                  })
++        headers = {'Connection': 'keep-alive',
++                   'Referer': 'https://{0}/designs/imm/index.php'.format(
++                       self.imm),
++                   'Content-Type': 'application/x-www-form-urlencoded'}
++        wc.request('POST', '/data/login', adata, headers)
++        rsp = wc.getresponse()
++        if rsp.status == 200:
++            rspdata = json.loads(rsp.read())
++            if rspdata['authResult'] == '0' and rspdata['status'] == 'ok':
++                if 'token2_name' in rspdata and 'token2_value' in rspdata:
++                    wc.set_header(rspdata['token2_name'],
++                                  rspdata['token2_value'])
++                return wc
++
++    @property
++    def wc(self):
++        if not self._wc:
++            self._wc = self.get_webclient()
++        return self._wc
++
++    def fetch_grouped_properties(self, groupinfo):
++        retdata = {}
++        for keyval in groupinfo:
++            retdata[keyval] = self.get_property(groupinfo[keyval])
++            if keyval == 'date':
++                retdata[keyval] = self.datefromprop(retdata[keyval])
++        returnit = False
++        for keyval in list(retdata):
++            if retdata[keyval] in (None, ''):
++                del retdata[keyval]
++            else:
++                returnit = True
++        if returnit:
++            return retdata
++
++    def get_cached_data(self, attribute):
++        try:
++            kv = self.datacache[attribute]
++            if kv[1] > util._monotonic_time() - 30:
++                return kv[0]
++        except KeyError:
++            return None
++
++    def attach_remote_media(self, url, user, password):
++        url = url.replace(':', '\:')
++        params = urllib.urlencode({
++            'RP_VmAllocateMountUrl({0},{1},1,,)'.format(
++                self.username, url): ''
++        })
++        result = self.wc.grab_json_response('/data?set', params)
++        if result['return'] != 'Success':
++            raise Exception(result['reason'])
++        self.weblogout()
++
++    def detach_remote_media(self):
++        mnt = self.wc.grab_json_response(
++            '/designs/imm/dataproviders/imm_rp_images.php')
++        removeurls = []
++        for item in mnt['items']:
++            if 'urls' in item:
++                for url in item['urls']:
++                    removeurls.append(url['url'])
++        for url in removeurls:
++            url = url.replace(':', '\:')
++            params = urllib.urlencode({
++                'RP_VmAllocateUnMountUrl({0},{1},0,)'.format(
++                    self.username, url): ''})
++            result = self.wc.grab_json_response('/data?set', params)
++            if result['return'] != 'Success':
++                raise Exception(result['reason'])
++        self.weblogout()
++
++    def fetch_agentless_firmware(self):
++        adapterdata = self.get_cached_data('lenovo_cached_adapters')
++        if not adapterdata:
++            if self.wc:
++                adapterdata = self.wc.grab_json_response(
++                    '/designs/imm/dataproviders/imm_adapters.php')
++                if adapterdata:
++                    self.datacache['lenovo_cached_adapters'] = (
++                        adapterdata, util._monotonic_time())
++        if adapterdata and 'items' in adapterdata:
++            for adata in adapterdata['items']:
++                aname = adata['adapter.adapterName']
++                donenames = set([])
++                for fundata in adata['adapter.functions']:
++                    fdata = fundata.get('firmwares', ())
++                    for firm in fdata:
++                        fname = firm['firmwareName'].rstrip()
++                        if '.' in fname:
++                            fname = firm['description'].rstrip()
++                        if fname in donenames:
++                            # ignore redundant entry
++                            continue
++                        donenames.add(fname)
++                        bdata = {}
++                        if 'versionStr' in firm and firm['versionStr']:
++                            bdata['version'] = firm['versionStr']
++                        if ('releaseDate' in firm and
++                                firm['releaseDate'] and
++                                firm['releaseDate'] != 'N/A'):
++                            try:
++                                bdata['date'] = self._parse_builddate(
++                                    firm['releaseDate'])
++                            except ValueError:
++                                pass
++                        yield ('{0} {1}'.format(aname, fname), bdata)
++        storagedata = self.get_cached_data('lenovo_cached_storage')
++        if not storagedata:
++            if self.wc:
++                storagedata = self.wc.grab_json_response(
++                    '/designs/imm/dataproviders/raid_alldevices.php')
++                if storagedata:
++                    self.datacache['lenovo_cached_storage'] = (
++                        storagedata, util._monotonic_time())
++        if storagedata and 'items' in storagedata:
++            for adp in storagedata['items']:
++                if 'storage.vpd.productName' not in adp:
++                    continue
++                adpname = adp['storage.vpd.productName']
++                if 'children' not in adp:
++                    adp['children'] = ()
++                for diskent in adp['children']:
++                    bdata = {}
++                    diskname = '{0} Disk {1}'.format(
++                        adpname,
++                        diskent['storage.slotNo'])
++                    bdata['model'] = diskent[
++                        'storage.vpd.productName'].rstrip()
++                    bdata['version'] = diskent['storage.firmwares'][0][
++                        'versionStr']
++                    yield (diskname, bdata)
++        self.weblogout()
++
++    def get_hw_inventory(self):
++        hwmap = self.hardware_inventory_map()
++        for key in hwmap:
++            yield (key, hwmap[key])
++
++    def get_hw_descriptions(self):
++        hwmap = self.hardware_inventory_map()
++        for key in hwmap:
++            yield key
++
++    def get_component_inventory(self, compname):
++        hwmap = self.hardware_inventory_map()
++        try:
++            return hwmap[compname]
++        except KeyError:
++            return None
++
++    def weblogout(self):
++        if self._wc:
++            self._wc.grab_json_response(self.logouturl)
++            self._wc = None
++
++    def hardware_inventory_map(self):
++        hwmap = self.get_cached_data('lenovo_cached_hwmap')
++        if hwmap:
++            return hwmap
++        hwmap = {}
++        adapterdata = self.get_cached_data('lenovo_cached_adapters')
++        if not adapterdata:
++            if self.wc:
++                adapterdata = self.wc.grab_json_response(
++                    '/designs/imm/dataproviders/imm_adapters.php')
++                if adapterdata:
++                    self.datacache['lenovo_cached_adapters'] = (
++                        adapterdata, util._monotonic_time())
++        if adapterdata and 'items' in adapterdata:
++            for adata in adapterdata['items']:
++                skipadapter = False
++                if not adata['adapter.oobSupported']:
++                    continue
++                aname = adata['adapter.adapterName']
++                clabel = adata['adapter.connectorLabel']
++                if clabel == 'Unknown':
++                    continue
++                if clabel != 'Onboard':
++                    aslot = adata['adapter.slotNo']
++                    if clabel == 'ML2':
++                        clabel = 'ML2 (Slot {0})'.format(aslot)
++                    else:
++                        clabel = 'Slot {0}'.format(aslot)
++                bdata = {'location': clabel}
++                for fundata in adata['adapter.functions']:
++                    bdata['pcislot'] = '{0:02x}:{1:02x}'.format(
++                        fundata['generic.busNo'], fundata['generic.devNo'])
++                    serialdata = fundata.get('vpd.serialNo', None)
++                    if (serialdata and serialdata != 'N/A' and
++                            '---' not in serialdata):
++                        bdata['serial'] = serialdata
++                    partnum = fundata.get('vpd.partNo', None)
++                    if partnum and partnum != 'N/A':
++                        bdata['partnumber'] = partnum
++                    if 'network.pPorts' in fundata:
++                        for portinfo in fundata['network.pPorts']:
++                            for lp in portinfo['logicalPorts']:
++                                ma = lp['networkAddr']
++                                ma = ':'.join(
++                                    [ma[i:i+2] for i in range(
++                                        0, len(ma), 2)]).lower()
++                                bdata['MAC Address {0}'.format(
++                                    portinfo['portIndex'])] = ma
++                    elif clabel == 'Onboard':  # skip the various non-nic
++                        skipadapter = True
++                if not skipadapter:
++                    hwmap[aname] = bdata
++            self.datacache['lenovo_cached_hwmap'] = (hwmap,
++                                                     util._monotonic_time())
++        self.weblogout()
++        return hwmap
++
++    def get_firmware_inventory(self, bmcver):
++        # First we fetch the system firmware found in imm properties
++        # then check for agentless, if agentless, get adapter info using
++        # https, using the caller TLS verification scheme
++        rsp = self.ipmicmd.xraw_command(netfn=0x3a, command=0x50)
++        immverdata = self.parse_imm_buildinfo(rsp['data'])
++        bdata = {
++            'version': bmcver, 'build': immverdata[0], 'date': immverdata[1]}
++        yield (self.bmcname, bdata)
++        bdata = self.fetch_grouped_properties({
++            'build': '/v2/ibmc/dm/fw/imm2/backup_build_id',
++            'version': '/v2/ibmc/dm/fw/imm2/backup_build_version',
++            'date': '/v2/ibmc/dm/fw/imm2/backup_build_date'})
++        if bdata:
++            yield ('{0} Backup'.format(self.bmcname), bdata)
++            bdata = self.fetch_grouped_properties({
++                'build': '/v2/ibmc/trusted_buildid',
++            })
++        if bdata:
++            yield ('{0} Trusted Image'.format(self.bmcname), bdata)
++        bdata = self.fetch_grouped_properties({
++            'build': '/v2/bios/build_id',
++            'version': '/v2/bios/build_version',
++            'date': '/v2/bios/build_date'})
++        if bdata:
++            yield ('UEFI', bdata)
++        else:
++            yield ('UEFI', {'version': 'unknown'})
++        bdata = self.fetch_grouped_properties({
++            'build': '/v2/ibmc/dm/fw/bios/backup_build_id',
++            'version': '/v2/ibmc/dm/fw/bios/backup_build_version'})
++        if bdata:
++            yield ('UEFI Backup', bdata)
++        # Note that the next pending could be pending for either primary
++        # or backup, so can't promise where it will go
++        bdata = self.fetch_grouped_properties({
++            'build': '/v2/bios/pending_build_id'})
++        if bdata:
++            yield ('UEFI Pending Update', bdata)
++        fpga = self.ipmicmd.xraw_command(netfn=0x3a, command=0x6b, data=(0,))
++        fpga = '{0}.{1}.{2}'.format(*[ord(x) for x in fpga['data']])
++        yield ('FPGA', {'version': fpga})
++        for firm in self.fetch_agentless_firmware():
++            yield firm
++
++
++class XCCClient(IMMClient):
++    logouturl = '/api/providers/logout'
++    bmcname = 'XCC'
++
++    def get_webclient(self):
++        cv = self.ipmicmd.certverify
++        wc = webclient.SecureHTTPConnection(self.imm, 443, verifycallback=cv)
++        try:
++            wc.connect()
++        except Exception:
++            return None
++        adata = json.dumps({'username': self.username,
++                            'password': self.password
++                            })
++        headers = {'Connection': 'keep-alive',
++                   'Content-Type': 'application/json'}
++        wc.request('POST', '/api/login', adata, headers)
++        rsp = wc.getresponse()
++        if rsp.status == 200:
++            rspdata = json.loads(rsp.read())
++            wc.set_header('Content-Type', 'application/json')
++            wc.set_header('Authorization', 'Bearer ' + rspdata['access_token'])
++            if '_csrf_token' in wc.cookies:
++                wc.set_header('X-XSRF-TOKEN', wc.cookies['_csrf_token'])
++            return wc
++
++    def attach_remote_media(self, url, user, password):
++        proto, host, path = util.urlsplit(url)
++        if proto == 'smb':
++            proto = 'cifs'
++        rq = {'Option': '', 'Domain': '', 'Write': 0}
++        # nfs == 1, cifs == 0
++        if proto == 'nfs':
++            rq['Protocol'] = 1
++            rq['Url'] = '{0}:{1}'.format(host, path)
++        elif proto == 'cifs':
++            rq['Protocol'] = 0
++            rq['Credential'] = '{0}:{1}'.format(user, password)
++            rq['Url'] = '//{0}{1}'.format(host, path)
++        elif proto in ('http', 'https'):
++            rq['Protocol'] = 7
++            rq['Url'] = url
++        else:
++            raise Exception('TODO')
++        rt = self.wc.grab_json_response('/api/providers/rp_vm_remote_connect',
++                                        json.dumps(rq))
++        if 'return' not in rt or rt['return'] != 0:
++            raise Exception('Unhandled return: ' + repr(rt))
++        rt = self.wc.grab_json_response('/api/providers/rp_vm_remote_mountall',
++                                        '{}')
++        if 'return' not in rt or rt['return'] != 0:
++            raise Exception('Unhandled return: ' + repr(rt))
++
++    def get_firmware_inventory(self, bmcver):
++        # First we fetch the system firmware found in imm properties
++        # then check for agentless, if agentless, get adapter info using
++        # https, using the caller TLS verification scheme
++        rsp = self.ipmicmd.xraw_command(netfn=0x3a, command=0x50)
++        immverdata = self.parse_imm_buildinfo(rsp['data'])
++        bdata = {
++            'version': bmcver, 'build': immverdata[0], 'date': immverdata[1]}
++        yield (self.bmcname, bdata)
++        bdata = self.fetch_grouped_properties({
++            'build': '/v2/ibmc/dm/fw/imm3/backup_pending_build_id',
++            'version': '/v2/ibmc/dm/fw/imm3/backup_pending_build_version',
++            'date': '/v2/ibmc/dm/fw/imm3/backup_pending_build_date'})
++        if bdata:
++            yield ('{0} Backup'.format(self.bmcname), bdata)
++        else:
++            bdata = self.fetch_grouped_properties({
++                'build': '/v2/ibmc/dm/fw/imm3/backup_build_id',
++                'version': '/v2/ibmc/dm/fw/imm3/backup_build_version',
++                'date': '/v2/ibmc/dm/fw/imm3/backup_build_date'})
++            if bdata:
++                yield ('{0} Backup'.format(self.bmcname), bdata)
++                bdata = self.fetch_grouped_properties({
++                    'build': '/v2/ibmc/trusted_buildid',
++                })
++        if bdata:
++            bdata = self.fetch_grouped_properties({
++                'build': '/v2/ibmc/trusted_buildid',
++            })
++        if bdata:
++            yield ('{0} Trusted Image'.format(self.bmcname), bdata)
++        bdata = self.fetch_grouped_properties({
++            'build': '/v2/bios/build_id',
++            'version': '/v2/bios/build_version',
++            'date': '/v2/bios/build_date'})
++        if bdata:
++            yield ('UEFI', bdata)
++        # Note that the next pending could be pending for either primary
++        # or backup, so can't promise where it will go
++        bdata = self.fetch_grouped_properties({
++            'build': '/v2/bios/pending_build_id'})
++        if bdata:
++            yield ('UEFI Pending Update', bdata)
++        bdata = self.fetch_grouped_properties({
++            'build': '/v2/tdm/build_id',
++            'version': '/v2/tdm/build_version',
++            'date': '/v2/tdm/build_date'})
++        if bdata:
++            yield ('LXPM', bdata)
++        fpga = self.ipmicmd.xraw_command(netfn=0x3a, command=0x6b, data=(0,))
++        fpga = '{0}.{1}.{2}'.format(*[ord(x) for x in fpga['data']])
++        yield ('FPGA', {'version': fpga})
++        for firm in self.fetch_agentless_firmware():
++            yield firm
++
++    def detach_remote_media(self):
++        rt = self.wc.grab_json_response('/api/providers/rp_vm_remote_getdisk')
++        if 'items' in rt:
++            slots = []
++            for mount in rt['items']:
++                slots.append(mount['slotId'])
++            for slot in slots:
++                rt = self.wc.grab_json_response(
++                    '/api/providers/rp_vm_remote_unmount',
++                    json.dumps({'Slot': slot}))
++                if 'return' not in rt or rt['return'] != 0:
++                    raise Exception("Unrecognized return: " + repr(rt))
+diff --git a/pyghmi/ipmi/oem/lenovo/nextscale.py b/pyghmi/ipmi/oem/lenovo/nextscale.py
+new file mode 100644
+index 0000000..cdb337c
+--- /dev/null
++++ b/pyghmi/ipmi/oem/lenovo/nextscale.py
+@@ -0,0 +1,226 @@
++# vim: tabstop=4 shiftwidth=4 softtabstop=4
++
++# Copyright 2016-2017 Lenovo
++#
++# Licensed under the Apache License, Version 2.0 (the "License");
++# you may not use this file except in compliance with the License.
++# You may obtain a copy of the License at
++#
++#     http://www.apache.org/licenses/LICENSE-2.0
++#
++# Unless required by applicable law or agreed to in writing, software
++# distributed under the License is distributed on an "AS IS" BASIS,
++# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++# See the License for the specific language governing permissions and
++# limitations under the License.
++
++import pyghmi.constants as pygconst
++import pyghmi.exceptions as pygexc
++import pyghmi.ipmi.sdr as sdr
++import struct
++
++try:
++    range = xrange
++except NameError:
++    pass
++
++
++def fpc_read_ac_input(ipmicmd):
++    rsp = ipmicmd.xraw_command(netfn=0x32, command=0x90, data=(1,))
++    rsp = rsp['data']
++    if len(rsp) == 6:
++        rsp = b'\x00' + bytes(rsp)
++    return struct.unpack_from('<H', rsp[3:5])[0]
++
++
++def fpc_read_dc_output(ipmicmd):
++    rsp = ipmicmd.xraw_command(netfn=0x32, command=0x90, data=(2,))
++    rsp = rsp['data']
++    if len(rsp) == 6:
++        rsp = b'\x00' + bytes(rsp)
++    return struct.unpack_from('<H', rsp[3:5])[0]
++
++
++def fpc_read_fan_power(ipmicmd):
++    rsp = ipmicmd.xraw_command(netfn=0x32, command=0x90, data=(3,))
++    rsp = rsp['data']
++    rsp += '\x00'
++    return struct.unpack_from('<I', rsp[1:])[0] / 100.0
++
++
++def fpc_read_psu_fan(ipmicmd, number, sz):
++    rsp = ipmicmd.xraw_command(netfn=0x32, command=0xa5, data=(number,))
++    rsp = rsp['data']
++    return struct.unpack_from('<H', rsp[:2])[0]
++
++
++def fpc_get_psustatus(ipmicmd, number, sz):
++    rsp = ipmicmd.xraw_command(netfn=0x32, command=0x91)
++    mask = 1 << (number - 1)
++    if len(rsp['data']) == 6:
++        statdata = bytearray([0])
++    else:
++        statdata = bytearray()
++    statdata += bytearray(rsp['data'])
++    presence = statdata[3] & mask == mask
++    pwrgood = statdata[4] & mask == mask
++    throttle = (statdata[6] | statdata[2]) & mask == mask
++    health = pygconst.Health.Ok
++    states = []
++    if presence and not pwrgood:
++        health = pygconst.Health.Critical
++        states.append('Power input lost')
++    if throttle:
++        health = pygconst.Health.Critical
++        states.append('Throttled')
++    if presence:
++        states.append('Present')
++    else:
++        states.append('Absent')
++        health = pygconst.Health.Critical
++    return (health, states)
++
++
++def fpc_get_nodeperm(ipmicmd, number, sz):
++    try:
++        rsp = ipmicmd.xraw_command(netfn=0x32, command=0xa7, data=(number,))
++    except pygexc.IpmiException as ie:
++        if ie.ipmicode == 0xd5:  # no node present
++            return (pygconst.Health.Ok, ['Absent'])
++        raise
++    perminfo = ord(rsp['data'][1])
++    health = pygconst.Health.Ok
++    states = []
++    if len(rsp['data']) == 4:  # different gens handled rc differently
++        rsp['data'] = b'\x00' + bytes(rsp['data'])
++    if sz == 6:  # FPC
++        permfail = ('\x02', '\x03')
++    elif sz == 2:  # SMM
++        permfail = ('\x02',)
++    if rsp['data'][4] in permfail:
++        states.append('Insufficient Power')
++        health = pygconst.Health.Failed
++    if perminfo & 0x40:
++        states.append('Node Fault')
++        health = pygconst.Health.Failed
++    return (health, states)
++
++
++def fpc_read_powerbank(ipmicmd):
++    rsp = ipmicmd.xraw_command(netfn=0x32, command=0xa2)
++    return struct.unpack_from('<H', rsp['data'][3:])[0]
++
++
++fpc_sensors = {
++    'AC Power': {
++        'type': 'Power',
++        'units': 'W',
++        'provider': fpc_read_ac_input,
++    },
++    'DC Power': {
++        'type': 'Power',
++        'units': 'W',
++        'provider': fpc_read_dc_output,
++    },
++    'Fan Power': {
++        'type': 'Power',
++        'units': 'W',
++        'provider': fpc_read_fan_power
++    },
++    'PSU Fan Speed': {
++        'type': 'Fan',
++        'units': 'RPM',
++        'provider': fpc_read_psu_fan,
++        'elements': 1,
++    },
++    'Total Power Capacity': {
++        'type': 'Power',
++        'units': 'W',
++        'provider': fpc_read_powerbank,
++    },
++    'Node Power Permission': {
++        'type': 'Management Subsystem Health',
++        'returns': 'tuple',
++        'units': None,
++        'provider': fpc_get_nodeperm,
++        'elements': 2,
++    },
++    'Power Supply': {
++        'type': 'Power Supply',
++        'returns': 'tuple',
++        'units': None,
++        'provider': fpc_get_psustatus,
++        'elements': 1,
++    }
++}
++
++
++def get_sensor_names(size):
++    global fpc_sensors
++    for name in fpc_sensors:
++        if size == 2 and name in ('Fan Power', 'Total Power Capacity'):
++            continue
++        sensor = fpc_sensors[name]
++        if 'elements' in sensor:
++            for elemidx in range(sensor['elements'] * size):
++                elemidx += 1
++                yield '{0} {1}'.format(name, elemidx)
++        else:
++            yield name
++
++
++def get_sensor_descriptions(size):
++    global fpc_sensors
++    for name in fpc_sensors:
++        if size == 2 and name in ('Fan Power', 'Total Power Capacity'):
++            continue
++        sensor = fpc_sensors[name]
++        if 'elements' in sensor:
++            for elemidx in range(sensor['elements'] * size):
++                elemidx += 1
++                yield {'name': '{0} {1}'.format(name, elemidx),
++                       'type': sensor['type']}
++        else:
++            yield {'name': name, 'type': sensor['type']}
++
++
++def get_fpc_firmware(bmcver, ipmicmd, fpcorsmm):
++    mymsg = ipmicmd.xraw_command(netfn=0x32, command=0xa8)
++    builddata = bytearray(mymsg['data'])
++    name = None
++    if fpcorsmm == 2:  # SMM
++        name = 'SMM'
++        buildid = '{0}{1}{2}{3}{4}{5}{6}'.format(
++            *[chr(x) for x in builddata[-7:]])
++    elif len(builddata) == 8:
++        builddata = builddata[1:]  # discard the 'completion code'
++        name = 'FPC'
++        buildid = '{0}{1}'.format(builddata[-2], chr(builddata[-1]))
++    yield (name, {'version': bmcver, 'build': buildid})
++    yield ('PSOC', {'version': '{0}.{1}'.format(builddata[2], builddata[3])})
++
++
++def get_sensor_reading(name, ipmicmd, sz):
++    value = None
++    sensor = None
++    health = pygconst.Health.Ok
++    states = []
++    if name in fpc_sensors and 'elements' not in fpc_sensors[name]:
++        sensor = fpc_sensors[name]
++        value = sensor['provider'](ipmicmd)
++    else:
++        bnam, _, idx = name.rpartition(' ')
++        idx = int(idx)
++        if bnam in fpc_sensors and idx <= fpc_sensors[bnam]['elements'] * sz:
++            sensor = fpc_sensors[bnam]
++            if 'returns' in sensor:
++                health, states = sensor['provider'](ipmicmd, idx, sz)
++            else:
++                value = sensor['provider'](ipmicmd, idx, sz)
++    if sensor is not None:
++        return sdr.SensorReading({'name': name, 'imprecision': None,
++                                  'value': value, 'states': states,
++                                  'state_ids': [], 'health': health,
++                                  'type': sensor['type']},
++                                 sensor['units'])
++    raise Exception('Sensor not found: ' + name)
+diff --git a/pyghmi/ipmi/private/localsession.py b/pyghmi/ipmi/private/localsession.py
+new file mode 100644
+index 0000000..f9a75f6
+--- /dev/null
++++ b/pyghmi/ipmi/private/localsession.py
+@@ -0,0 +1,135 @@
++# vim: tabstop=4 shiftwidth=4 softtabstop=4
++
++# Copyright 2017 Lenovo
++#
++# Licensed under the Apache License, Version 2.0 (the "License");
++# you may not use this file except in compliance with the License.
++# You may obtain a copy of the License at
++#
++#     http://www.apache.org/licenses/LICENSE-2.0
++#
++# Unless required by applicable law or agreed to in writing, software
++# distributed under the License is distributed on an "AS IS" BASIS,
++# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++# See the License for the specific language governing permissions and
++# limitations under the License.
++
++from ctypes import addressof, c_int, c_long, c_short, c_ubyte, c_uint
++from ctypes import cast, create_string_buffer, POINTER, pointer, sizeof
++from ctypes import Structure
++import fcntl
++import pyghmi.ipmi.private.util as iutil
++from select import select
++
++
++class IpmiMsg(Structure):
++    _fields_ = [('netfn', c_ubyte),
++                ('cmd', c_ubyte),
++                ('data_len', c_short),
++                ('data', POINTER(c_ubyte))]
++
++
++class IpmiSystemInterfaceAddr(Structure):
++    _fields_ = [('addr_type', c_int),
++                ('channel', c_short),
++                ('lun', c_ubyte)]
++
++
++class IpmiRecv(Structure):
++    _fields_ = [('recv_type', c_int),
++                ('addr', POINTER(IpmiSystemInterfaceAddr)),
++                ('addr_len', c_uint),
++                ('msgid', c_long),
++                ('msg', IpmiMsg)]
++
++
++class IpmiReq(Structure):
++    _fields_ = [('addr', POINTER(IpmiSystemInterfaceAddr)),
++                ('addr_len', c_uint),
++                ('msgid', c_long),
++                ('msg', IpmiMsg)]
++
++
++_IONONE = 0
++_IOWRITE = 1
++_IOREAD = 2
++IPMICTL_SET_MY_ADDRESS_CMD = _IOREAD << 30 | sizeof(c_uint) << 16 | \
++    ord('i') << 8 | 17  # from ipmi.h
++IPMICTL_SEND_COMMAND = _IOREAD << 30 | sizeof(IpmiReq) << 16 | \
++    ord('i') << 8 | 13  # from ipmi.h
++# next is really IPMICTL_RECEIVE_MSG_TRUNC, but will only use that
++IPMICTL_RECV = (_IOWRITE | _IOREAD) << 30 | sizeof(IpmiRecv) << 16 | \
++    ord('i') << 8 | 11  # from ipmi.h
++BMC_SLAVE_ADDR = c_uint(0x20)
++CURRCHAN = 0xf
++ADDRTYPE = 0xc
++
++
++class Session(object):
++    def __init__(self, devnode='/dev/ipmi0'):
++        """Create a local session inband
++
++        :param: devnode: The path to the ipmi device
++        """
++        self.ipmidev = open(devnode, 'rw')
++        fcntl.ioctl(self.ipmidev, IPMICTL_SET_MY_ADDRESS_CMD, BMC_SLAVE_ADDR)
++        # the interface is initted, create some reusable memory for our session
++        self.databuffer = create_string_buffer(4096)
++        self.req = IpmiReq()
++        self.rsp = IpmiRecv()
++        self.addr = IpmiSystemInterfaceAddr()
++        self.req.msg.data = cast(addressof(self.databuffer), POINTER(c_ubyte))
++        self.rsp.msg.data = self.req.msg.data
++        self.userid = None
++        self.password = None
++
++    def await_reply(self):
++        rd, _, _ = select((self.ipmidev,), (), (), 1)
++        while not rd:
++            rd, _, _ = select((self.ipmidev,), (), (), 1)
++
++    @property
++    def parsed_rsp(self):
++        response = {'netfn': self.rsp.msg.netfn, 'command': self.rsp.msg.cmd,
++                    'code': ord(self.databuffer.raw[0]),
++                    'data': list(bytearray(
++                        self.databuffer.raw[1:self.rsp.msg.data_len]))}
++        errorstr = iutil.get_ipmi_error(response)
++        if errorstr:
++            response['error'] = errorstr
++        return response
++
++    def raw_command(self,
++                    netfn,
++                    command,
++                    data=(),
++                    bridge_request=None,
++                    retry=True,
++                    delay_xmit=None,
++                    timeout=None,
++                    waitall=False):
++        self.addr.channel = CURRCHAN
++        self.addr.addr_type = ADDRTYPE
++        self.req.addr_len = sizeof(IpmiSystemInterfaceAddr)
++        self.req.addr = pointer(self.addr)
++        self.req.msg.netfn = netfn
++        self.req.msg.cmd = command
++        data = buffer(bytearray(data))
++        self.databuffer[:len(data)] = data[:len(data)]
++        self.req.msg.data_len = len(data)
++        fcntl.ioctl(self.ipmidev, IPMICTL_SEND_COMMAND, self.req)
++        self.await_reply()
++        self.rsp.msg.data_len = 4096
++        self.rsp.addr = pointer(self.addr)
++        self.rsp.addr_len = sizeof(IpmiSystemInterfaceAddr)
++        fcntl.ioctl(self.ipmidev, IPMICTL_RECV, self.rsp)
++        return self.parsed_rsp
++
++
++def main():
++    a = Session('/dev/ipmi0')
++    print(repr(a.raw_command(0, 1)))
++
++
++if __name__ == '__main__':
++    main()
+diff --git a/pyghmi/tests/__init__.py b/pyghmi/tests/__init__.py
+new file mode 100644
+index 0000000..e69de29
+diff --git a/pyghmi/tests/unit/__init__.py b/pyghmi/tests/unit/__init__.py
+new file mode 100644
+index 0000000..e69de29
+diff --git a/pyghmi/tests/unit/base.py b/pyghmi/tests/unit/base.py
+new file mode 100644
+index 0000000..5e577e4
+--- /dev/null
++++ b/pyghmi/tests/unit/base.py
+@@ -0,0 +1,21 @@
++# Copyright 2017 Red Hat, Inc.
++# All Rights Reserved.
++#
++#    Licensed under the Apache License, Version 2.0 (the "License"); you may
++#    not use this file except in compliance with the License. You may obtain
++#    a copy of the License at
++#
++#         http://www.apache.org/licenses/LICENSE-2.0
++#
++#    Unless required by applicable law or agreed to in writing, software
++#    distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
++#    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
++#    License for the specific language governing permissions and limitations
++#    under the License.
++
++from oslotest import base
++
++
++class TestCase(base.BaseTestCase):
++
++    """Test case base class for all unit tests."""
+diff --git a/pyghmi/tests/unit/ipmi/__init__.py b/pyghmi/tests/unit/ipmi/__init__.py
+new file mode 100644
+index 0000000..e69de29
+diff --git a/pyghmi/tests/unit/ipmi/test_sdr.py b/pyghmi/tests/unit/ipmi/test_sdr.py
+new file mode 100644
+index 0000000..69cdb86
+--- /dev/null
++++ b/pyghmi/tests/unit/ipmi/test_sdr.py
+@@ -0,0 +1,23 @@
++# Copyright 2017 Red Hat, Inc.
++# All Rights Reserved.
++#
++#    Licensed under the Apache License, Version 2.0 (the "License"); you may
++#    not use this file except in compliance with the License. You may obtain
++#    a copy of the License at
++#
++#         http://www.apache.org/licenses/LICENSE-2.0
++#
++#    Unless required by applicable law or agreed to in writing, software
++#    distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
++#    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
++#    License for the specific language governing permissions and limitations
++#    under the License.
++
++from pyghmi.ipmi import sdr
++from pyghmi.tests.unit import base
++
++
++class SDRTestCase(base.TestCase):
++
++    def test_ones_complement(self):
++        self.assertEqual(sdr.ones_complement(127, 8), 127)
+diff --git a/pyghmi/version.py b/pyghmi/version.py
+new file mode 100644
+index 0000000..557fa4f
+--- /dev/null
++++ b/pyghmi/version.py
+@@ -0,0 +1,18 @@
++# Copyright 2017 Red Hat, Inc.
++# All Rights Reserved.
++#
++#    Licensed under the Apache License, Version 2.0 (the "License"); you may
++#    not use this file except in compliance with the License. You may obtain
++#    a copy of the License at
++#
++#         http://www.apache.org/licenses/LICENSE-2.0
++#
++#    Unless required by applicable law or agreed to in writing, software
++#    distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
++#    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
++#    License for the specific language governing permissions and limitations
++#    under the License.
++
++import pbr.version
++
++version_info = pbr.version.VersionInfo('pyghmi')
+diff --git a/python-pyghmi.spec b/python-pyghmi.spec
+new file mode 100644
+index 0000000..4f6bab4
+--- /dev/null
++++ b/python-pyghmi.spec
+@@ -0,0 +1,37 @@
++Summary: Python General Hardware Management Initiative (IPMI and others)
++Name: python-pyghmi
++Version: %{?version:%{version}}%{!?version:%(python setup.py --version)}
++Release: %{?release:%{release}}%{!?release:1}
++Source0: pyghmi-%{version}.tar.gz
++License: Apache License, Version 2.0
++Group: Development/Libraries
++BuildRoot: %{_tmppath}/%{name}-%{version}-%{release}-buildroot
++Prefix: %{_prefix}
++BuildArch: noarch
++Vendor: Jarrod Johnson <jjohnson2@lenovo.com>
++Url: https://git.openstack.org/cgit/openstack/pyghmi
++
++
++%description
++This is a pure python implementation of IPMI protocol.
++
++pyghmicons and pyghmiutil are example scripts to show how one may incorporate
++this library into python code
++
++
++
++%prep
++%setup -n pyghmi-%{version}
++
++%build
++python setup.py build
++
++%install
++python setup.py install --single-version-externally-managed -O1 --root=$RPM_BUILD_ROOT --record=INSTALLED_FILES --prefix=/usr
++
++%clean
++rm -rf $RPM_BUILD_ROOT
++
++%files -f INSTALLED_FILES
++%defattr(-,root,root)
++
+-- 
+2.6.3.windows.1
+
