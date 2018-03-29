@@ -412,6 +412,10 @@ class SDREntry(object):
 
     def decode_sensor_reading(self, reading):
         numeric = None
+        #####change Power1 into psu1_power in huawei server #####
+        if self.sensor_name.startswith('Power'):
+            name = self.sensor_name.replace('Power', 'psu')
+            self.sensor_name = name + '_power'
         output = {
             'name': self.sensor_name,
             'type': self.sensor_type,
