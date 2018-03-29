@@ -464,7 +464,8 @@ class OEMHandler(generic.OEMHandler):
             'Manufacturer': oid.cpu_fields['Manufacturer'] + index,
             'Maximum Frequency': oid.cpu_fields['Maximum Frequency'] + index,
             'Threads': oid.cpu_fields['Threads'] + index,
-            'Type': oid.cpu_fields['Type'] + index
+            'Type': oid.cpu_fields['Type'] + index,
+            'Model': oid.cpu_fields['Model'] + index
         })
 
     def _get_mem_info(self, index):
@@ -473,13 +474,13 @@ class OEMHandler(generic.OEMHandler):
             'Model': '',
             'Stepping': '',
             'channel_number': '',
+            'speed': self.snmpcmd.get(oid.mem_fields['speed'] + index).strip(),
             'capacity_mb': self.snmpcmd.get(oid.mem_fields['capacity_mb'] + index).strip().split(' ')[0]
         }
         # Test needed.
         dic_get = {
             'manufacturer': oid.mem_fields['manufacturer'] + index,
             'module_type': oid.mem_fields['module_type'] + index,
-            'speed': oid.mem_fields['speed'] + index,
             'ddr_voltage': oid.mem_fields['ddr_voltage'] + index,
             'manufacture_location': oid.mem_fields['manufacture_location'] + index,
             'serial': oid.mem_fields['serial'] + index
