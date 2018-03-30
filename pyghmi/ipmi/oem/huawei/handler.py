@@ -446,16 +446,102 @@ class OEMHandler(generic.OEMHandler):
         return self.snmpcmd.dictGet(oidList)
 
     def _get_raid_info(self, index):
-        oilModel = oid.raid_fields['model'] + index
-        oidList = {'Model': oilModel}
-        return self.snmpcmd.dictGet(oidList)
+        raid_info  = {
+                'AdapterType': 'RAIDController',
+                'FlashComponent2Name': 'NVDT',
+                'FlashComponent2Version': '',
+                'FlashComponent3Name': '',
+                'FlashComponent3Version': '',
+                'FlashComponent4Name': '',
+                'FlashComponent4Version': '',
+                'FlashComponent5Name': '',
+                'FlashComponent5Version': '',
+                'FlashComponent6Name': '',
+                'FlashComponent6Version': '',
+                'FlashComponent7Name': '',
+                'FlashComponent7Version': '',
+                'FlashComponent8Name': '',
+                'FlashComponent8Version': '',
+                'SupercapPresence': 'Absent'
+        }
+
+        oidList = {
+                    'FlashComponent1Name': oid.raid_fields['ComponentName'] + index,
+                    'FlashComponent1Version': oid.raid_fields['FwVersion'] + index,
+                    'FlashComponent2Version': oid.raid_fields['NVDataVersion'] + index,
+        }
+        #'SupercapPresence': oid.raid_fields['BBUPresence'] + index
+        raid_info.update(self.snmpcmd.dictGet(oidList))
+        return raid_info
+
+    def _disk_info_format(self, disk_info):
+
+        if(disk_info['LinkSpeed'] == ""):
+            disk_info['LinkSpeed'] = ''
+        elif(disk_info['LinkSpeed'] == '-1' ):
+            disk_info['LinkSpeed'] = ''
+        else:
+            disk_info['LinkSpeed'] += ' Mb/s'
+
+
+        if(disk_info['Size'] == '-1'):
+            disk_info['Size'] = ''
+        elif (disk_info['Size'] == ''):
+            disk_info['Size'] = ''
+        else:
+            disk_info['Size'] += ' MB'
+
+
+        if(disk_info['MediaType'] == '1'):
+            disk_info['MediaType'] = 'HDD'
+        else:
+            disk_info['MediaType'] = ''
+
+
+        if(disk_info['InterfaceType'] == '3'):
+            disk_info['InterfaceType'] = 'SAS'
+        else:
+            disk_info['InterfaceType'] = ''
+
+
+        if(disk_info['DeviceState'] == '1'):
+            disk_info['DeviceState'] = 'active'
+        else:
+            disk_info['DeviceState'] = 'inactive'
+        
+        return
+
 
     def _get_disk_info(self, index):
-        oilModel = oid.disk_fields['model'] + index
-        oilSize = oid.disk_fields['size'] + index
+        disk_info = {
+                'ControllerIndex': index,
+                'DeviceState': '',
+                'FormFactor': '',
+                'InterfaceType':'',
+                'LinkSpeed':'',
+                'MediaType': '',
+                'Size': '',
+                'SlotNumber': index,
+                'VendorID': ''                
+                }
+        oidList = {
+                'DeviceState': oid.disk_fields['DeviceState'] + index,
+                'FormFactor': oid.disk_fields['Manufacturer'] + index,
+                'InterfaceType': oid.disk_fields['InterfaceType'] + index,
+                'LinkSpeed': oid.disk_fields['SpeedInMbps'] + index,
+                'MediaType': oid.disk_fields['MediaType'] + index,
+                'Size': oid.disk_fields['CapacityInMB'] + index,
+                'Model': oid.disk_fields['ModelNumber'] + index,
+                'VendorID': oid.disk_fields['Manufacturer'] + index,
+                }
 
-        oidList = {'Model': oilModel, 'Size': oilSize}
-        return self.snmpcmd.dictGet(oidList)
+        disk_info.update(self.snmpcmd.dictGet(oidList))
+        self._disk_info_format(disk_info)
+
+        if( disk_info['Size'] == ''):
+            disk_info = None
+
+        return disk_info
 
     def _get_cpu_info(self, index):
         return self.snmpcmd.dictGet({
@@ -464,8 +550,7 @@ class OEMHandler(generic.OEMHandler):
             'Manufacturer': oid.cpu_fields['Manufacturer'] + index,
             'Maximum Frequency': oid.cpu_fields['Maximum Frequency'] + index,
             'Threads': oid.cpu_fields['Threads'] + index,
-            'Type': oid.cpu_fields['Type'] + index,
-            'Model': oid.cpu_fields['Model'] + index
+            'Type': oid.cpu_fields['Type'] + index
         })
 
     def _get_mem_info(self, index):
@@ -474,13 +559,13 @@ class OEMHandler(generic.OEMHandler):
             'Model': '',
             'Stepping': '',
             'channel_number': '',
-            'speed': self.snmpcmd.get(oid.mem_fields['speed'] + index).strip(),
             'capacity_mb': self.snmpcmd.get(oid.mem_fields['capacity_mb'] + index).strip().split(' ')[0]
         }
         # Test needed.
         dic_get = {
             'manufacturer': oid.mem_fields['manufacturer'] + index,
             'module_type': oid.mem_fields['module_type'] + index,
+            'speed': oid.mem_fields['speed'] + index,
             'ddr_voltage': oid.mem_fields['ddr_voltage'] + index,
             'manufacture_location': oid.mem_fields['manufacture_location'] + index,
             'serial': oid.mem_fields['serial'] + index
@@ -526,11 +611,16 @@ class OEMHandler(generic.OEMHandler):
 
         # raid
         for i in range(1, len(self.snmpcmd.walk(oid.raid_fields['number'])) + 1):
-            self.oem_inventory_info['RAID ' + str(i)] = self._get_raid_info(str(i))
+            self.oem_inventory_info['RAID Controller ' + str(i)] = self._get_raid_info(str(i))
 
         # disk
         for i in range(1, len(self.snmpcmd.walk(oid.disk_fields['number'])) + 1):
-            self.oem_inventory_info['DISK ' + str(i)] = self._get_disk_info(str(i))
+            diskInfo = self._get_disk_info(str(i))
+
+            if(diskInfo):
+                self.oem_inventory_info['RAID Drive ' + str(i)] = diskInfo
+                self.oem_inventory_info['Drive ' + str(i)] = diskInfo
+
 
         # power
         for i in range(1, len(self.snmpcmd.walk(oid.power_supply['number'])) + 1):
