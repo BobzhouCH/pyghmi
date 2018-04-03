@@ -311,4 +311,4 @@ class OEMHandler(object):
         return False
 
     def invoke_ome_method(self,method,*arg,**karg):
-        return False
+        raise Exception("unsupport")

@@ -39,6 +39,7 @@ from pyghmi.ipmi.oem.huawei import raid_controller
 from pyghmi.ipmi.oem.huawei import raid_drive
 from pyghmi.ipmi.oem.huawei import energy
 from pyghmi.ipmi.oem.huawei.snmp import oid
+from pyghmi.ipmi.oem.huawei.snmp.events import Trap
 
 import pyghmi.util.webclient as wc
 
@@ -1321,19 +1322,32 @@ class OEMHandler(generic.OEMHandler):
                 netfn=0x32, command=0x9f, data=(8, 10, 0, 0))
             self.ipmicmd.xraw_command(netfn=0x32, command=0x9f, data=(8, 11))
 
-    def invoke_oem_method(self,method,*arg,**karg):
+    def invoke_oem_method(self, method,udata,*arg,**karg):
+        self.ops = udata
         methods=[
             "get_alert_destination",
             "set_alert_destination"]
         if method in methods:
-            fun = getattr(self, method)
-            return fun(*arg,**karg)
-        return False
+            try:
+                fun = getattr(self, method)
+                return fun(*arg,**karg)
+            except Exception as e:
+                raise Exception("Huawei unsupport")
 
     def set_alert_destination(self, ip=None, acknowledge_required=None,
                               acknowledge_timeout=None, retries=None,
                               destination=0, channel=None):
-        pass
+        target = socket.inet_ntop(socket.AF_INET, struct.pack('I', destination))
+        Trap(self.ops).set_trap_target(ip, target)
+        return None
 
-    def get_alert_destination(self, destination=0, channel=None):
-        pass
+
+    def get_alert_destination(self,destination=0, channel=None):
+        destinfo = {}
+        target = socket.inet_ntop(socket.AF_INET, struct.pack('I', destination))
+        destinfo['address'] = Trap(self.ops).get_trap_traget(target)
+        destinfo['address_format'] = 'ipv4'
+        destinfo['acknowledge_required'] = False
+        destinfo['retries'] = 0
+        destinfo['acknowledge_timeout'] = 1
+        return destinfo
