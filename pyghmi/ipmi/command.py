@@ -36,6 +36,7 @@ except ImportError:
 from pyghmi.ipmi.private import localsession
 import pyghmi.ipmi.private.util as pygutil
 import pyghmi.ipmi.sdr as sdr
+import pyghmi.ipmi.oem.huawei.snmp.sdr as sdr_huawei
 import socket
 import struct
 from pyghmi.common import snmp
@@ -711,8 +712,12 @@ class Command(object):
         :param sensorname:  Name of the desired sensor
         :returns: sdr.SensorReading object
         """
+        self.oem_init()
         if self._sdr is None:
-            self._sdr = sdr.SDR(self)
+            if self._oem.vendor == 'huawei':
+                self._sdr = sdr_huawei.SDR(self)
+            else:
+                self._sdr = sdr.SDR(self)
         for sensor in self._sdr.get_sensor_numbers():
             if self._sdr.sensors[sensor].name == sensorname:
                 rsp = self.raw_command(command=0x2d, netfn=4, data=(sensor,))
@@ -720,7 +725,7 @@ class Command(object):
                     raise exc.IpmiException(rsp['error'], rsp['code'])
                 return self._sdr.sensors[sensor].decode_sensor_reading(
                     rsp['data'])
-        self.oem_init()
+
         return self._oem.get_sensor_reading(sensorname)
 
     def _fetch_lancfg_param(self, channel, param, prefixlen=False):
@@ -839,8 +844,12 @@ class Command(object):
 
         :returns: Iterator of sdr.SensorReading objects
         """
+        self.oem_init()
         if self._sdr is None:
-            self._sdr = sdr.SDR(self)
+            if self._oem.vendor == 'huawei':
+                self._sdr = sdr_huawei.SDR(self)
+            else:
+                self._sdr = sdr.SDR(self)
         for sensor in self._sdr.get_sensor_numbers():
             rsp = self.raw_command(command=0x2d, netfn=4, data=(sensor,))
             if 'error' in rsp:
@@ -848,7 +857,7 @@ class Command(object):
                     continue
                 raise exc.IpmiException(rsp['error'], code=rsp['code'])
             yield self._sdr.sensors[sensor].decode_sensor_reading(rsp['data'])
-        self.oem_init()
+
         for reading in self._oem.get_sensor_data():
             yield reading
 
@@ -859,12 +868,16 @@ class Command(object):
 
         :returns: Iterator of dicts describing each sensor
         """
+        self.oem_init()
         if self._sdr is None:
-            self._sdr = sdr.SDR(self)
+            if self._oem.vendor == 'huawei':
+                self._sdr = sdr_huawei.SDR(self)
+            else:
+                self._sdr = sdr.SDR(self)
         for sensor in self._sdr.get_sensor_numbers():
             yield {'name': self._sdr.sensors[sensor].name,
                    'type': self._sdr.sensors[sensor].sensor_type}
-        self.oem_init()
+
         for sensor in self._oem.get_sensor_descriptions():
             yield sensor
 

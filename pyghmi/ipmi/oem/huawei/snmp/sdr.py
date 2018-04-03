@@ -35,6 +35,7 @@ import pyghmi.exceptions as exc
 import pyghmi.ipmi.private.constants as ipmiconst
 import struct
 import weakref
+import re
 
 TYPE_UNKNOWN = 0
 TYPE_SENSOR = 1
@@ -412,6 +413,20 @@ class SDREntry(object):
 
     def decode_sensor_reading(self, reading):
         numeric = None
+        '''
+        change Power1, Power2 into PSU1 Power, PSU2 Power
+        change type from other into Current
+        change Inlet Temp into Exhaust Temp
+        '''
+        if self.sensor_name == 'Power':
+            self.sensor_name = 'System Power'
+            self.sensor_type = 'Current'
+        elif re.match('Power\d',self.sensor_name):
+            name = self.sensor_name.replace('Power','PSU')
+            self.sensor_name = name + ' Power'
+            self.sensor_type = 'Current'
+        elif self.sensor_name == 'Inlet Temp':
+            self.sensor_name = self.sensor_name.replace('Inlet', 'Exhaust')
         output = {
             'name': self.sensor_name,
             'type': self.sensor_type,
