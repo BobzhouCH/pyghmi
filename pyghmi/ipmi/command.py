@@ -16,9 +16,6 @@
 # limitations under the License.
 # This represents the low layer message framing portion of IPMI
 
-import sys
-sys.path.append('/root/pyghmi_test/pyghmi/')
-
 from itertools import chain
 import pyghmi.constants as const
 import pyghmi.exceptions as exc
@@ -135,9 +132,6 @@ class Command(object):
         self._netchannel = None
         self._ipv6support = None
         self.certverify = None
-
-
-
         if bmc is None:
             self.ipmi_session = localsession.Session()
         elif onlogon is not None:
@@ -157,19 +151,10 @@ class Command(object):
                                                 port=port,
                                                 kg=kg)
 
-        # add for SNMP session
+        # add for SNMP session,
+        # snmp_version_ops={}  means get v3 config from file.
         snmp_version = 3
         snmp_version_ops = {}
-        snmp_version_ops['retries'] = 3
-        snmp_version_ops['community'] = "public"
-        snmp_version_ops['seclevel'] = "authPriv"
-        snmp_version_ops['authproto'] = "SHA"
-        snmp_version_ops['authpass'] = "Admin@9000"
-        snmp_version_ops['privproto'] = "AES"
-        snmp_version_ops['privpass'] = "Admin@9000"
-        snmp_version_ops['secname'] = "Administrator"
-
-        self.ops = snmp_version_ops
         self.snmp_session = snmp.Connection(self.bmc,
                                             snmp_version,
                                             **snmp_version_ops)
@@ -952,12 +937,6 @@ class Command(object):
         :param destination:  The destination number.  Defaults to 0
         :param channel: The channel for alerting.  Defaults to current channel
         """
-        self.oem_init()
-        try:
-            return self._oem.invoke_oem_method("get_alert_destination", self.ops, destination=destination, channel=channel)
-        except Exception as e:
-            pass
-
         destinfo = {}
         if channel is None:
             channel = self.get_network_channel()
@@ -1091,14 +1070,6 @@ class Command(object):
         :param channel: The channel to configure the alert on.  Defaults to
                 current
         """
-        self.oem_init()
-        try:
-            return self._oem.invoke_oem_method("set_alert_destination", self.ops, ip=ip, acknowledge_required=acknowledge_required,
-                              acknowledge_timeout=acknowledge_timeout, retries=retries,
-                              destination=destination, channel=channel)
-        except Exception as e:
-            pass
-
         if channel is None:
             channel = self.get_network_channel()
         if (acknowledge_required is not None or retries is not None or
@@ -1917,4 +1888,4 @@ class Command(object):
     def detach_remote_media(self):
         self.oem_init()
         self._oem.detach_remote_media()
-
+	 
