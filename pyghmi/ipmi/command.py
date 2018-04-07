@@ -953,22 +953,25 @@ class Command(object):
         :param channel: The channel for alerting.  Defaults to current channel
         """
         self.oem_init()
-        try:
-            return self._oem.invoke_oem_method("get_alert_destination", self.ops, destination=destination, channel=channel)
-        except Exception as e:
-            pass
 
         destinfo = {}
         if channel is None:
             channel = self.get_network_channel()
         rqdata = (channel, 18, destination, 0)
-        rsp = self.xraw_command(netfn=0xc, command=2, data=rqdata)
-        dtype, acktimeout, retries = struct.unpack('BBB', rsp['data'][2:])
-        destinfo['acknowledge_required'] = dtype & 0b10000000 == 0b10000000
-        # Ignore destination type for now...
-        if destinfo['acknowledge_required']:
-            destinfo['acknowledge_timeout'] = acktimeout
-        destinfo['retries'] = retries
+
+        if self._oem.vendor == 'huawei':
+            destinfo['acknowledge_required'] = False                          
+            destinfo['retries'] = 0                                           
+            destinfo['acknowledge_timeout'] = None
+        else:
+            rsp = self.xraw_command(netfn=0xc, command=2, data=rqdata)
+            dtype, acktimeout, retries = struct.unpack('BBB', rsp['data'][2:])
+            destinfo['acknowledge_required'] = dtype & 0b10000000 == 0b10000000
+            # Ignore destination type for now...
+            if destinfo['acknowledge_required']:
+                destinfo['acknowledge_timeout'] = acktimeout
+            destinfo['retries'] = retries
+
         rqdata = (channel, 19, destination, 0)
         rsp = self.xraw_command(netfn=0xc, command=2, data=rqdata)
         if ord(rsp['data'][2]) & 0b11110000 == 0:
@@ -1092,17 +1095,12 @@ class Command(object):
                 current
         """
         self.oem_init()
-        try:
-            return self._oem.invoke_oem_method("set_alert_destination", self.ops, ip=ip, acknowledge_required=acknowledge_required,
-                              acknowledge_timeout=acknowledge_timeout, retries=retries,
-                              destination=destination, channel=channel)
-        except Exception as e:
-            pass
 
         if channel is None:
             channel = self.get_network_channel()
+
         if (acknowledge_required is not None or retries is not None or
-                acknowledge_timeout is not None):
+                acknowledge_timeout is not None and self._oem.vendor != 'huawei'):
             currtype = self.xraw_command(netfn=0xc, command=2, data=(
                 channel, 18, destination, 0))
             if currtype['data'][0] != b'\x11':
@@ -1122,6 +1120,7 @@ class Command(object):
             destreq = bytearray((channel, 18))
             destreq.extend(currtype)
             self.xraw_command(netfn=0xc, command=1, data=destreq)
+
         if ip is not None:
             destdata = bytearray((channel, 19, destination))
             try:
