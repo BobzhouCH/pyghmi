@@ -7,6 +7,7 @@
 import netsnmp
 from socket import gethostbyname, gaierror
 import time
+import ConfigParser
 
 
 
@@ -39,14 +40,14 @@ class Connection:
             self.session = self.get_v2_session(host, version_ops)
         # SNMP V3
         elif version == 3:
-            self.session = self.get_v3_session(host, version_ops)
+            self.session = self.get_v3_session_from_config(host)
         # SNMP V2 or V3
         elif version == 0:
             # try version 2
             self.session = self.get_v2_session(host, version_ops)
             if not self.session:
                 # try version 3
-                self.session = self.get_v3_session(host, version_ops)
+                self.session = self.get_v3_session_from_config(host)
             return
 
         else:
@@ -75,6 +76,30 @@ class Connection:
                                   PrivProto=version_ops['privproto'],
                                   PrivPass=version_ops['privpass'],
                                   SecName=version_ops['secname'])
+        return session
+
+    def get_v3_session_from_config(self, host):
+        cf = ConfigParser.ConfigParser()
+        cf.read("/usr/lib/python2.7/site-packages/pyghmi/common/snmp-config.conf")
+        v3_ops = {}
+        v3_ops['retries'] = cf.get('v3-huawei','retries')
+        v3_ops['community'] = cf.get('v3-huawei','community')
+        v3_ops['seclevel'] = cf.get('v3-huawei','seclevel')
+        v3_ops['authproto'] = cf.get('v3-huawei','authproto')
+        v3_ops['authpass'] = cf.get('v3-huawei','authpass')
+        v3_ops['privproto'] = cf.get('v3-huawei','privproto')
+        v3_ops['privpass'] = cf.get('v3-huawei','privpass')
+        v3_ops['secname'] = cf.get('v3-huawei','secname')
+
+        session = netsnmp.Session(DestHost=host,
+                                  Version=3,
+                                  Retries=int(v3_ops['retries']),
+                                  SecLevel=v3_ops['seclevel'],
+                                  AuthProto=v3_ops['authproto'],
+                                  AuthPass=v3_ops['authpass'],
+                                  PrivProto=v3_ops['privproto'],
+                                  PrivPass=v3_ops['privpass'],
+                                  SecName=v3_ops['secname'])
         return session
 
 

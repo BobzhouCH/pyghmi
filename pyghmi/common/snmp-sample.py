@@ -12,9 +12,9 @@ class TestSNMP(object):
     def test(self):
         oidList={"cpu_cooperation":".1.3.6.1.4.1.2011.2.235.1.1.15.50.1.2.1", "cpu.2":".1.3.6.1.4.1.2011.2.235.1.1.15.50.1.2.2", "cpu.3":".1.3.6.1.4.1.2011.2.235.1.1.16.50.1.4.1"}
         print self.session.get(".1.3.6.1.4.1.2011.2.235.1.1.15.50.1.2.1")
-	print self.session.dictGet(oidList)
-	print self.session.walk(".1.3.6.1.4.1.2011.2.235.1.1.15.50.1")
-	print self.session.walkGet(".1.3.6.1.4.1.2011.2.235.1.1.15.50.1")
+        print self.session.dictGet(oidList)
+        print self.session.walk(".1.3.6.1.4.1.2011.2.235.1.1.15.50.1")
+        print self.session.walkGet(".1.3.6.1.4.1.2011.2.235.1.1.15.50.1")
 
 version_ops={}
 version_ops['retries'] = 3
