@@ -16,6 +16,7 @@ import pyghmi.ipmi.oem.generic as generic
 import pyghmi.ipmi.oem.lenovo.handler as lenovo
 import pyghmi.ipmi.oem.ibm.handler as ibm
 import pyghmi.ipmi.oem.huawei.handler as huawei
+import pyghmi.ipmi.oem.dell.handler as dell
 
 # The mapping comes from
 # http://www.iana.org/assignments/enterprise-numbers/enterprise-numbers
@@ -25,7 +26,8 @@ oemmap = {
     20301: ibm,  # IBM x86 (and System X at Lenovo)
     19046: lenovo,  # Lenovo x86 (e.g. Thinkserver)
     7154: lenovo, # Lenovo
-    2011: huawei  # Huawei x86
+    2011: huawei,  # Huawei x86
+    674: dell  # Del x86
 }
 
 
