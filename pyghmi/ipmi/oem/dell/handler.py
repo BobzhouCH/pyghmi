@@ -603,30 +603,30 @@ class OEMHandler(generic.OEMHandler):
         for i in range(1, len(self.snmpcmd.walk(oid.cpu_fields['number'])) + 1):
             self.oem_inventory_info['CPU ' + str(i)] = self._get_cpu_info(str(i))
 
-        # first get memory nubmer using snmp walk.
-        for i in range(1, len(self.snmpcmd.walk(oid.mem_fields['number'])) + 1):
-            self.oem_inventory_info['DIMM ' + str(i)] = self._get_mem_info(str(i))
-
-        # net
-        for i in range(1, len(self.snmpcmd.walk(oid.net_fields['number'])) + 1):
-            self.oem_inventory_info['NET ' + str(i)] = self._get_net_info(str(i))
-
-        # raid
-        for i in range(1, len(self.snmpcmd.walk(oid.raid_fields['number'])) + 1):
-            self.oem_inventory_info['RAID Controller ' + str(i)] = self._get_raid_info(str(i))
-
-        # disk
-        for i in range(1, len(self.snmpcmd.walk(oid.disk_fields['number'])) + 1):
-            diskInfo = self._get_disk_info(str(i))
-
-            if(diskInfo):
-                self.oem_inventory_info['RAID Drive ' + str(i)] = diskInfo
-                self.oem_inventory_info['Drive ' + str(i)] = diskInfo
-
-
-        # power
-        for i in range(1, len(self.snmpcmd.walk(oid.power_supply['number'])) + 1):
-            self.oem_inventory_info['Power Supply ' + str(i)] = self._get_power_supply(str(i))
+        # # first get memory nubmer using snmp walk.
+        # for i in range(1, len(self.snmpcmd.walk(oid.mem_fields['number'])) + 1):
+        #     self.oem_inventory_info['DIMM ' + str(i)] = self._get_mem_info(str(i))
+        #
+        # # net
+        # for i in range(1, len(self.snmpcmd.walk(oid.net_fields['number'])) + 1):
+        #     self.oem_inventory_info['NET ' + str(i)] = self._get_net_info(str(i))
+        #
+        # # raid
+        # for i in range(1, len(self.snmpcmd.walk(oid.raid_fields['number'])) + 1):
+        #     self.oem_inventory_info['RAID Controller ' + str(i)] = self._get_raid_info(str(i))
+        #
+        # # disk
+        # for i in range(1, len(self.snmpcmd.walk(oid.disk_fields['number'])) + 1):
+        #     diskInfo = self._get_disk_info(str(i))
+        #
+        #     if(diskInfo):
+        #         self.oem_inventory_info['RAID Drive ' + str(i)] = diskInfo
+        #         self.oem_inventory_info['Drive ' + str(i)] = diskInfo
+        #
+        #
+        # # power
+        # for i in range(1, len(self.snmpcmd.walk(oid.power_supply['number'])) + 1):
+        #     self.oem_inventory_info['Power Supply ' + str(i)] = self._get_power_supply(str(i))
 
     def get_oem_inventory(self):
         #if self.has_tsm or self.has_ami or self.has_asrock:

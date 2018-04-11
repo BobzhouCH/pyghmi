@@ -24,6 +24,7 @@ import pyghmi.ipmi.events as sel
 import pyghmi.ipmi.oem.huawei.snmp.events as sel_huawei
 import pyghmi.ipmi.fru as fru
 import pyghmi.ipmi.oem.huawei.snmp.fru as fru_huawei
+import pyghmi.ipmi.oem.dell.snmp.fru as fru_dell
 from pyghmi.ipmi.oem.lookup import get_oem_handler
 
 try:
@@ -590,8 +591,10 @@ class Command(object):
         device_id['Product ID'] = device_id.pop('product_id')
         if self._oem.vendor == 'lenovo':
             zerofru = fru.FRU(ipmicmd=self).info
-        elif self._oem.vendor == 'huawei':
+        elif self._oem.vendor == 'huawei' :
             zerofru = fru_huawei.FRU(self.bmc, self.userid, self.password).info
+        elif self._oem.vendor == 'dell' :
+            zerofru = fru_dell.FRU(self.bmc, self.userid, self.password).info
 
         if zerofru is None:
             zerofru = {}

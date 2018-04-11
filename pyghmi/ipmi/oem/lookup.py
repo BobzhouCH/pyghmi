@@ -27,7 +27,7 @@ oemmap = {
     19046: lenovo,  # Lenovo x86 (e.g. Thinkserver)
     7154: lenovo, # Lenovo
     2011: huawei,  # Huawei x86
-    674: dell  # Del x86
+    674: dell  # Dell x86
 }
 
 
