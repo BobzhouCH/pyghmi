@@ -27,29 +27,29 @@ mem_fields['serial'] = '.1.3.6.1.4.1.674.10892.5.4.1100.50.1.23.1.'
 
 
 net_fields = {}
-net_fields['number'] = '.1.3.6.1.4.1.674.10892.5.4.1100.90.1.1.1.1'
+net_fields['number'] = '.1.3.6.1.4.1.674.10892.5.4.1100.90.1.1.1'
 net_fields['Manufacturer'] = '.1.3.6.1.4.1.674.10892.5.4.1100.90.1.7.1.'
 net_fields['model'] = '.1.3.6.1.4.1.674.10892.5.4.1100.90.1.6.1.'
-net_fields['interface'] = '.1.3.6.1.4.1.674.10892.5.4.1100.90.1.6.1.'##
+net_fields['interface'] = '.1.3.6.1.4.1.674.10892.5.4.1100.90.1.27.1'
 
 raid_fields= {}
-raid_fields['number'] = '.1.3.6.1.4.1.'
-raid_fields['ComponentName'] = '.1.3.6.1.4.1.'
+raid_fields['number'] = '.1.3.6.1.4.1.674.10892.5.5.1.20.130.1.1.2'
+raid_fields['ComponentName'] = '.1.3.6.1.4.1.674.10892.5.5.1.20.130.1.1.79.'
 raid_fields['HealthStatus'] = '.1.3.6.1.4.1.'
-raid_fields['FwVersion'] = '.1.3.6.1.4.1.'
-raid_fields['NVDataVersion'] = '.1.3.6.1.4.1.'
+raid_fields['FwVersion'] = '.1.3.6.1.4.1.674.10892.5.5.1.20.130.1.1.8.'
+raid_fields['NVDataVersion'] = '.1.3.6.1.4.1.674.10892.5.5.1.20.130.1.1.8.'
 raid_fields['BBUPresence'] = '.1.3.6.1.4.1.'
-raid_fields['model'] = '.1.3.6.1.4.1.'
+raid_fields['model'] = '.1.3.6.1.4.1.674.10892.5.5.1.20.130.1.1.2.'
 
 disk_fields = {}
 disk_fields['number'] = '.1.3.6.1.4.1.'
 disk_fields['presence'] = '.1.3.6.1.4.1.'
 disk_fields['DeviceState'] = '.1.3.6.1.4.1.'
-disk_fields['CapacityInMB'] = '.1.3.6.1.4.1.'
+disk_fields['CapacityInMB'] = '.1.3.6.1.4.1.674.10892.5.5.1.20.130.4.1.11.'
 disk_fields['CapacityInGB'] = '.1.3.6.1.4.1.'
 disk_fields['SpeedInMbps'] = '.1.3.6.1.4.1.'
 disk_fields['PowerState'] = '.1.3.6.1.4.1.'
-disk_fields['MediaType'] = '.1.3.6.1.4.1.'
+disk_fields['MediaType'] = '.1.3.6.1.4.1.674.10892.5.5.1.20.130.4.1.27.'
 disk_fields['Manufacturer'] = '.1.3.6.1.4.1.'
 disk_fields['ModelNumber'] = ".1.3.6.1.4.1."
 disk_fields['SerialNumber'] = ".1.3.6.1.4.1."
