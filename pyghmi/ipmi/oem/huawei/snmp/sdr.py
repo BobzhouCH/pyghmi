@@ -597,7 +597,7 @@ class SDREntry(object):
         """
         if self.sdrtype != TYPE_SENSOR:
             return
-        if self.self.sensor_name == 'Power':
+        if self.sensor_name == 'Power':
             self.sensor_name = 'System Power'
             self.sensor_type = 'Current'
         elif re.match('Power\d', self.sensor_name):
