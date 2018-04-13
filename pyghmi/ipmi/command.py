@@ -25,8 +25,7 @@ import pyghmi.ipmi.oem.huawei.snmp.events as sel_huawei
 import pyghmi.ipmi.fru as fru
 import pyghmi.ipmi.oem.huawei.snmp.fru as fru_huawei
 import pyghmi.ipmi.oem.dell.snmp.fru as fru_dell
-from pyghmi.ipmi.oem.lookup import get_oem_handler
-
+from pyghmi.ipmi.oem.lookup import get_oem_handler, get_vendor
 try:
     from pyghmi.ipmi.private import session
 except ImportError:
@@ -152,13 +151,7 @@ class Command(object):
                                                 port=port,
                                                 kg=kg)
 
-        # add for SNMP session,
-        # snmp_version_ops={}  means get v3 config from file.
-        snmp_version = 3
-        snmp_version_ops = {}
-        self.snmp_session = snmp.Connection(self.bmc,
-                                            snmp_version,
-                                            **snmp_version_ops)
+
 
     def register_key_handler(self, callback, type='tls'):
         """Assign a verification handler for a public key
@@ -218,8 +211,17 @@ class Command(object):
         """
         if self._oem:
             return
-        self._oem = get_oem_handler(self._get_device_id(), self, self.snmp_session)
 
+        # add for SNMP session,
+        # snmp_version_ops={}  means get v3 config from file.
+        self.vendor = get_vendor(self._get_device_id())
+        snmp_version = 3
+        snmp_version_ops = {}
+        self.snmp_session = snmp.Connection(self.bmc,
+                                            snmp_version,
+                                            self.vendor,
+                                            **snmp_version_ops)
+        self._oem = get_oem_handler(self._get_device_id(), self, self.snmp_session)
     def get_bootdev(self):
         """Get current boot device override information.
 

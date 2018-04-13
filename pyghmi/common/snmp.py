@@ -24,12 +24,12 @@ class Connection:
     __doc__ = "SNMP connection to a single host, containing common data like authentication"
 
     # Configuring SNMP session towards a single host.
-    def __init__(self, host, version=2, **version_ops):
+    def __init__(self, host, version=2, vendor=None, **version_ops):
 
         self.host = host
         self.version = version
         self.options = version_ops
-
+        self.vendor = vendor
         try:
             gethostbyname(host)
         except gaierror:
@@ -82,14 +82,14 @@ class Connection:
         cf = ConfigParser.ConfigParser()
         cf.read("/usr/lib/python2.7/site-packages/pyghmi/common/snmp-config.conf")
         v3_ops = {}
-        v3_ops['retries'] = cf.get('v3-huawei','retries')
-        v3_ops['community'] = cf.get('v3-huawei','community')
-        v3_ops['seclevel'] = cf.get('v3-huawei','seclevel')
-        v3_ops['authproto'] = cf.get('v3-huawei','authproto')
-        v3_ops['authpass'] = cf.get('v3-huawei','authpass')
-        v3_ops['privproto'] = cf.get('v3-huawei','privproto')
-        v3_ops['privpass'] = cf.get('v3-huawei','privpass')
-        v3_ops['secname'] = cf.get('v3-huawei','secname')
+        v3_ops['retries'] = cf.get('v3-'+self.vendor, 'retries')
+        v3_ops['community'] = cf.get('v3-'+self.vendor, 'community')
+        v3_ops['seclevel'] = cf.get('v3-'+self.vendor, 'seclevel')
+        v3_ops['authproto'] = cf.get('v3-'+self.vendor, 'authproto')
+        v3_ops['authpass'] = cf.get('v3-'+self.vendor, 'authpass')
+        v3_ops['privproto'] = cf.get('v3-'+self.vendor, 'privproto')
+        v3_ops['privpass'] = cf.get('v3-'+self.vendor, 'privpass')
+        v3_ops['secname'] = cf.get('v3-'+self.vendor, 'secname')
 
         session = netsnmp.Session(DestHost=host,
                                   Version=3,

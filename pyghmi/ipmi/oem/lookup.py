@@ -30,6 +30,14 @@ oemmap = {
     674: dell  # Dell x86
 }
 
+vendormap = {
+    2 : 'ibm',
+    20301: 'ibm',  # IBM x86 (and System X at Lenovo)
+    19046: 'lenovo',  # Lenovo x86 (e.g. Thinkserver)
+    7154: 'lenovo', # Lenovo
+    2011: 'huawei',  # Huawei x86
+    674: 'dell'  # Dell x86
+}
 
 def get_oem_handler(oemid, ipmicmd, snmpcmd):
     try:
@@ -39,3 +47,12 @@ def get_oem_handler(oemid, ipmicmd, snmpcmd):
         return oemmap[oemid['manufacturer_id']].OEMHandler(oemid, ipmicmd, snmpcmd)
     except KeyError:
         return generic.OEMHandler(oemid, ipmicmd, snmpcmd)
+
+def get_vendor(oemid):
+    try:
+        #Treat the Reno (x3750M4) as IBM server
+        if oemid['product_id'] == 309:
+            oemid['manufacturer_id'] = 20301
+        return vendormap[oemid['manufacturer_id']]
+    except KeyError:
+        return 'Unknown Vendor'
